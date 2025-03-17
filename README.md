@@ -76,7 +76,7 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
     ```c
     GPIOC_CRH &= ~((1<<23)|(1<<22)); // ~(1:1) = (0:0)
 	GPIOC_CRH |= ((1<<21)|(1<<20));
-#### 3.3 Ghi giá trị 
+#### 3.3. Ghi giá trị 
 - Sau khi đã cấu hình xong, tiến hành ghi giá trị ra chân PC13 để điều khiển Led. Trạng thái các chân trên Port tương ứng được xác định bởi các bit trong thanh ghi Port output data register (GPIOx_ODR). 
 - Bằng cách thay đổi giá trị Bit ODR13 trong thanh ghi này, chúng ta có thể điều khiển trạng thái Led ở chân PC13.
 - Ví dụ, có thể điều khiển led nhấp nháy sau 1 khoảng thời gian bằng các lệnh sau.
@@ -107,7 +107,7 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
     unsigned int LCKR;
     } GPIO_TypeDef;
 
-    ```c
+    
     typedef struct
     {
      volatile unsigned int CR;         // Địa chỉ offset: 0x00
@@ -121,5 +121,55 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
     volatile unsigned int BDCR;       // Địa chỉ offset: 0x20
     volatile unsigned int CSR;        // Địa chỉ offset: 0x24
     } RCC_TypeDef; // 1 phan tu chiem 32 bit, phan tu tiep theo cung chiem 32bit tiep theo
+- Với cách này, ta có thể truy cập thanh ghi như truy cập thuộc tính của struct:
+  	```c
+  	 #define RCC ((RCC_TypeDef *) 0x40021000) // dia chi cua struct
+	#define GPIOC ((GPIO_TypeDef *) 0x40011000) // dia chi port c
+	RCC->APB2ENR |= (1 << 4);  // Bật Clock cho GPIOC
+### 5. Tổng kết và mở rộng
+- Việc code trên thanh ghi nhằm giúp các bạn hiểu rõ cách hoạt động chi tiết của từng ngoại vi, cũng như tăng hiệu suất của chương trình.
+- Tuy nhiên, việc lập trình thanh ghi có thể trở nên khá phức tạp
+	```c
+ 	void WritePin(GPIO_TypeDef *GPIO_Port, uint8_t Pin, uint8_t state)
+	{
+	if(state == HIGH)
+	GPIO_Port->ODR |= (1 << Pin);
+	else
+	GPIO_Port->ODR &= ~(1 << Pin);
+	}
+	
+	void GPIO_Config(void){			
+ 	   GPIOC->CRH |= GPIO_CRH_MODE13_0; 	//MODE13[1:0] = 11: Output mode, max speed 50 MHz
+ 	   GPIOC->CRH |= GPIO_CRH_MODE13_1; 	
+ 	   GPIOC->CRH &= ~GPIO_CRH_CNF13_0;	              //CNF13[1:0] = 00: General purpose output push-pull
+   	 GPIOC->CRH &= ~GPIO_CRH_CNF13_1;
+	}
+ ### 6. Đọc trạng thái nút nhấn
+ - Sơ đồ đọc trạng thái
+![image](https://github.com/user-attachments/assets/429cbb1b-0092-46f7-b1fe-a155366b30a6)
+- Cấp clock cho ngoại vi: cấp cho GPIOA và GPIOC
+  	```c
+	RCC -> APB2ENR |= ((1<<4)|(1<<2));// bit 1 o vi tri thu 4 va 2, con lai bang 0 (GPIOC va GPIOA)
+- Cấu hình chế độ chân:
+  ![image](https://github.com/user-attachments/assets/507f207f-630e-4922-ae86-34b16ece68d7)
+	```c
+ 	GPIOC -> CRH&= ~((1<<23)|(1<<22)); // ~(1:1) = (0:0)
+	GPIOC ->CRH|= ((1<<21)|(1<<20));
+	// PA0
+	GPIOA-> CRL &= ~((1<<0)|(1<<1)|(1<<2));
+	GPIOA ->CRL |=  (1<<3);
+	GPIOA -> ODR |= 1; // pull up or pull down
+ - sử dụng ngoại vi:
+	```c
+	   while(1){
+		if((GPIOA->IDR & (1 << 0)) == 0) // Đọc trạng thái nút nhấn
+		{
+			GPIOC->ODR = 0 << 13;   // Nếu PA0 = 0 -> PC13 = 0
+		}
+		else
+		{
+			GPIOC->ODR = 1 << 13;   // Nếu PA0 = 1 -> PC13 = 1
+		}
+	}
 
 
