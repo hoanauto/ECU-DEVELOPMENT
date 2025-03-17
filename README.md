@@ -59,3 +59,11 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
   ```c
     RCC_APB2ENR |= (1<<4);
 #### 3.2. Cấu hình chế độ hoạt động
+- Sau khi cấp clock cho GPIOC, cần cấu hình chân (xác định chân và chế độ hoạt động của chân đó, cụ thể là PC13) trong thanh ghi Port configuration register
+**Port configuration register low (GPIOx_CRL)**: cấu hình cho các chân từ 0-7 trong Portx
+![image](https://github.com/user-attachments/assets/28b528aa-24d6-4881-9294-621d25421837)
+**Port configuration register high (GPIOx_CRH)**: cấu hình cho các chân từ 8-15 trong Portx
+![image](https://github.com/user-attachments/assets/260c7bb5-897c-4e58-9a2a-00935a498009)
+- Các cặp bit CNFy cùng với các cặp bit MODEy tương ứng giúp xác định chế độ hoạt động và các thông số của từng chân. 
+- Trong bài này, ta cần cấu hình cho PC13 làm ngõ ra chân Output, Push - pull, tốc độ 50mHz --> nên ta cấu hình thanh ghi GPIOC_CRH, **MODE13** có cặp bit **11** và **CNF13** với cặp bit **00**
+![image](https://github.com/user-attachments/assets/1d14befe-d261-4f2f-87f7-b86b774e4697)
