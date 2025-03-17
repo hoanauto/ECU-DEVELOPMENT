@@ -39,7 +39,7 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
 - Để Blink led PC13 cần thực hiện 3 bước:
   - Cấp xung clock cho ngoại vi
   - Cấu hình chân của ngoại vi
-  - Sử dụng ngoại vi
+  - Sử dụng ngoại v
 #### 3.1. Cấp xung clock cho ngoại vi
 Để cấu hình hoạt động cho các ngoại vi, trước hết cần cấu hình cấp xung clock cho chúng qua các bus.
 - Các ngoại vi được cấp xung clock thông qua các đường bus sau:
@@ -55,6 +55,8 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
 --> địa chỉ đầy đủ của thanh ghi RCC_APB2ENR là `0x40021018` và được định nghĩa như sau
   ```c
   #define RCC_APB2ENR *((unsigned int*)0x40021018)
+  
+![image](https://github.com/user-attachments/assets/10539415-44f1-446d-b233-c179ee737c80)
 - Set bit IOPCEN lên 1 để cấp clock cho GPIOC.
   ```c
     RCC_APB2ENR |= (1<<4);
@@ -64,6 +66,60 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
 ![image](https://github.com/user-attachments/assets/28b528aa-24d6-4881-9294-621d25421837)
 **Port configuration register high (GPIOx_CRH)**: cấu hình cho các chân từ 8-15 trong Portx
 ![image](https://github.com/user-attachments/assets/260c7bb5-897c-4e58-9a2a-00935a498009)
+- địa chỉ đầy đủ của thanh ghi GPIOC_CRH là `0x40011004` và được định nghĩa như sau:
+  ```c
+      #define GPIOC_CRH *((unsigned int *) 0x40011004)// dia chi portc
+  
 - Các cặp bit CNFy cùng với các cặp bit MODEy tương ứng giúp xác định chế độ hoạt động và các thông số của từng chân. 
 - Trong bài này, ta cần cấu hình cho PC13 làm ngõ ra chân Output, Push - pull, tốc độ 50mHz --> nên ta cấu hình thanh ghi GPIOC_CRH, **MODE13** có cặp bit **11** và **CNF13** với cặp bit **00**
 ![image](https://github.com/user-attachments/assets/1d14befe-d261-4f2f-87f7-b86b774e4697)
+    ```c
+    GPIOC_CRH &= ~((1<<23)|(1<<22)); // ~(1:1) = (0:0)
+	GPIOC_CRH |= ((1<<21)|(1<<20));
+#### 3.3 Ghi giá trị 
+- Sau khi đã cấu hình xong, tiến hành ghi giá trị ra chân PC13 để điều khiển Led. Trạng thái các chân trên Port tương ứng được xác định bởi các bit trong thanh ghi Port output data register (GPIOx_ODR). 
+- Bằng cách thay đổi giá trị Bit ODR13 trong thanh ghi này, chúng ta có thể điều khiển trạng thái Led ở chân PC13.
+- Ví dụ, có thể điều khiển led nhấp nháy sau 1 khoảng thời gian bằng các lệnh sau.
+    ```c
+    while(1){
+
+    	GPIOC->ODR |= 1<<13; // off
+    	delay(10000000);
+    	GPIOC->ODR &= ~(1<<13); // on
+    	delay(10000000);
+        }
+- Hàm delay() được viết như sau:
+    ```c
+    void delay(__IO uint32_t timedelay){ 
+	for(int i=0; i<timedelay; i++){}
+    }
+### 4. Xây dựng cấu trúc thanh ghi của các ngoại vi
+- Thay vì dùng #define, ta có thể dùng struct để nhóm tất cả các thanh ghi RCC và GPIO vào một cấu trúc:
+    ```c
+    typedef struct
+    {
+    unsigned int CRL;
+    unsigned int CRH;
+    unsigned int IDR;
+    unsigned int ODR;
+    unsigned int BSRR;
+    unsigned int BRR;
+    unsigned int LCKR;
+    } GPIO_TypeDef;
+
+    ```c
+    typedef struct
+    {
+     volatile unsigned int CR;         // Địa chỉ offset: 0x00
+    volatile unsigned int CFGR;       // Địa chỉ offset: 0x04
+    volatile unsigned int CIR;        // Địa chỉ offset: 0x08
+    volatile unsigned int APB2RSTR;   // Địa chỉ offset: 0x0C
+    volatile unsigned int APB1RSTR;   // Địa chỉ offset: 0x10
+    volatile unsigned int AHBENR;     // Địa chỉ offset: 0x14
+    volatile unsigned int APB2ENR;    // Địa chỉ offset: 0x18
+    volatile unsigned int APB1ENR;    // Địa chỉ offset: 0x1C
+    volatile unsigned int BDCR;       // Địa chỉ offset: 0x20
+    volatile unsigned int CSR;        // Địa chỉ offset: 0x24
+    } RCC_TypeDef; // 1 phan tu chiem 32 bit, phan tu tiep theo cung chiem 32bit tiep theo
+
+
