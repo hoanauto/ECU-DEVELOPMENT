@@ -55,3 +55,7 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
 --> địa chỉ đầy đủ của thanh ghi RCC_APB2ENR là `0x40021018` và được định nghĩa như sau
   ```c
   #define RCC_APB2ENR *((unsigned int*)0x40021018)
+- Set bit IOPCEN lên 1 để cấp clock cho GPIOC.
+  ```c
+    RCC_APB2ENR |= (1<<4);
+#### 3.2. Cấu hình chế độ hoạt động
