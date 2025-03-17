@@ -171,5 +171,10 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
 			GPIOC->ODR = 1 << 13;   // Nếu PA0 = 1 -> PC13 = 1
 		}
 	}
+</details>
 
+<details><summary>LESSON 2: GPIO</summary>
+    <p>	
+	    
+ ## LESSON 2: GPIO
 
