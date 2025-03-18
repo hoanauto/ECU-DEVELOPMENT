@@ -340,6 +340,229 @@ Kit Bluepill có sẵn 1 user led trên board, led này nối tới chân 13 c�
 	- NewState: trạng thái mới của chân. Có thể là ENABLE hoặc DISABLE.
  - **GPIO_AFIODeInit()**
 	- Mô tả: Đặt lại tất cả các thanh ghi của AFIO (Alternate Function IO) về giá trị mặc định.
+</details>
+
+<details><summary>LESSON 3: INTERRUPT - TIMER</summary>
+    <p>	
+	    
+ ## LESSON 3: INTERRUPT - TIMER
+ ### 1. Định nghĩa ngắt (Interrupt)
+ - Ngắt (Interrupt) là một cơ chế trong vi điều khiển và vi xử lý giúp tạm dừng chương trình chính để xử lý một sự kiện quan trọng, sau đó quay lại tiếp tục chương trình chính như bình thường.
+- Ví dụ:
+	- Khi bạn nhấn một nút trên bàn phím, vi điều khiển có thể nhận một ngắt để đọc dữ liệu phím.
+	- Khi có dữ liệu đến từ cổng UART, vi điều khiển nhận ngắt để xử lý dữ liệu ngay lập tức.
+![image](https://github.com/user-attachments/assets/5277f523-fc4e-46a6-9e47-aaa1052d9478)
+
+- Mỗi ngắt có 1 trình phục vụ ngắt, sẽ yêu cầu MCU thực thi lệnh tại trình phục vụ ngắt khi có ngắt xảy ra.
+- Các ngắt có các địa chỉ cố định trong bộ nhớ để giữ các trình phục vụ. Các địa chỉ này gọi là vector ngắt.
+- Các loại ngắt phổ biến trong STM32F1:
+	- **Ngắt bên ngoài (EXTI - External Interrupt)**: Kích hoạt khi có tín hiệu từ chân GPIO.
+	- **Ngắt từ Timer**: Kích hoạt khi bộ định thời (Timer) đến một giá trị nhất định.
+	- **Ngắt từ giao tiếp ngoại vi (USART, I2C, SPI, CAN, v.v.)**: Xảy ra khi có dữ liệu đến hoặc cần xử lý.
+	- Ngắt do lỗi (HardFault, BusFault, UsageFault, v.v.): Kích hoạt khi có lỗi trong chương trình.
+![image](https://github.com/user-attachments/assets/959aac63-9727-4f7c-b82b-35cdf6f67928)
+### 2. Các loại ngắt thông dụng
+- Thanh ghi PC (Program Counter) là một thanh ghi đặc biệt trong vi điều khiển/vi xử lý, dùng để lưu địa chỉ lệnh tiếp theo sẽ được thực thi trong chương trình.
+- Chức năng của thanh ghi PC:
+	- Khi vi điều khiển thực hiện một lệnh, thanh ghi PC sẽ tự động tăng lên để trỏ đến lệnh kế tiếp.
+	- Khi xảy ra nhảy lệnh (branch, jump, call, return, interrupt,...), giá trị của PC sẽ được thay đổi để trỏ đến địa chỉ lệnh cần thực thi tiếp theo.
+	- Khi có ngắt (interrupt), giá trị của PC sẽ được lưu vào stack trước khi nhảy vào hàm xử lý ngắt. Sau khi xử lý xong, PC được khôi phục để tiếp tục chương trình chính.
+   
+![image](https://github.com/user-attachments/assets/8cd68f5f-892f-46d4-b116-588dff6f5750)
+#### 2.1. Ngắt ngoài
+- Ngắt ngoài (EXTI - External Interrupt) là cơ chế giúp vi điều khiển phản hồi ngay lập tức khi có tín hiệu từ bên ngoài thay đổi (ví dụ: nhấn nút, tín hiệu từ cảm biến).
+  
+ ![image](https://github.com/user-attachments/assets/da27885f-1dcf-482b-90cd-5c31d74243f9)
+
+ - Xảy ra khi có thay đổi điện áp trên các chân GPIO được cấu hình làm ngõ vào ngắt.
+	- LOW: kích hoạt ngắt liên tục khi chân ở mức thấp.
+	- HIGH: Kích hoạt liên tục khi chân ở mức cao.
+	- Rising: Kích hoạt khi trạng thái trên chân chuyển từ thấp lên cao.
+	- Falling: Kích hoạt khi trạng thái trên chân chuyển từ cao xuống thấp.
+ ![image](https://github.com/user-attachments/assets/178d0565-eb93-4d2d-82c4-028c14e57eb8)
+#### 2.2. Ngắt Timer
+- Ngắt Timer là một trong những tính năng quan trọng giúp vi điều khiển thực thi một tác vụ theo chu kỳ thời gian mà không cần sử dụng vòng lặp liên tục (polling).
+- Nguyên lý hoạt động của ngắt Timer
+	- Timer trong STM32F1 có thể tự động tăng giá trị **CNT (Counter)** theo xung clock.
+Khi giá trị CNT đạt đến giá trị **ARR (Auto-Reload Register)** đã cấu hình, nó sẽ kích hoạt ngắt Timer.
+	- Sau đó, CPU sẽ nhảy vào **hàm xử lý ngắt (ISR - Interrupt Service Routine)** để thực thi nhiệm vụ.
+- Ví dụ:
+	- Cấu hình Timer 2 với chu kỳ 1ms, mỗi lần Timer đạt 1ms → kích hoạt ngắt.
+	- Trong ngắt, ta có thể đếm số lần gọi để thực hiện tác vụ mỗi giây.
+ - Xảy ra khi giá trị trong thanh ghi đếm của timer bị tràn. Sau mỗi lần tràn, cần phải reset giá trị thanh ghi để có thể tạo ngắt tiếp theo.
+- Cấu trúc Timer trong STM32F1: STM32F1 có nhiều bộ Timer, trong đó phổ biến nhất là:
+	- Timer 1: Timer nâng cao (Advanced Timer)
+	- Timer 2, 3, 4: Timer chung (General Purpose Timer)
+	- Timer 6, 7: Timer cơ bản (Basic Timer)
+- Mỗi Timer có một thanh ghi đếm (CNT) và một thanh ghi ARR để xác định khi nào ngắt xảy ra.
+![image](https://github.com/user-attachments/assets/f80b4d63-f0ff-4911-9fdf-ade967d2d38d)
+#### 2.3. Ngắt truyền thông
+- Xảy ra khi có sự kiện truyền/nhận dữ liệu giữa MCU và các thiết bị khác, thường sử dụng cho các giao thức như UART, SPI, I2C để đảm bảo việc truyền/nhận được chính xác.
+![image](https://github.com/user-attachments/assets/101089dc-02d7-486e-a1b8-c66491c55a7e)
+### 3. Mức độ ưu tiên ngắt
+- Độ ưu tiên ngắt là khác nhau ở các ngắt. Nó xác định ngắt nào được quyền thực thi khi nhiều ngắt xảy ra đồng thời.
+- STM32 quy định ngắt nào có số thứ tự ưu tiên càng thấp thì có quyền càng cao. Các ưu tiên ngắt có thể lập trình được.
+### 4. Timer
+#### 4.1. Định nghĩa Timer
+- Có thể hiểu 1 cách đơn giản: timer là 1 mạch digital logic có vai trò đếm mỗi chu kỳ clock (đếm lên hoặc đếm xuống).
+- Timer còn có thể hoạt động ở chế độ nhận xung clock từ các tín hiệu ngoài. Có thể là từ 1 nút nhấn, bộ đếm sẽ được tăng sau mỗi lần bấm nút (sườn lên hoặc sườn xuống tùy vào cấu hình). Ngoài ra còn các chế độ khác như PWM, định thời …vv.
+- STM32f103C8 có tất cả 7 timer nhưng trong đó đã bao gồm 1 systick timer, 2 watchdog timer. Vậy chỉ còn lại 4 timerz dùng cho các chức năng như ngắt, timer base, PWM, Encoder, Input capture…. Trong đó TIM1 là Timer đặc biệt, chuyên dụng cho việc xuất xung với các mode xuất xung, các mode bảo vệ đầy đủ hơn so với các timer khác. TIM1 thuộc khối clock APB2, còn các TIM2,TIM3,TIM4 thuộc nhóm APB1.
+![image](https://github.com/user-attachments/assets/4c3a7491-7819-43b2-b01a-d6314533245b)
+- Timer hoạt động bằng cách đếm xung clock.
+- Giá trị hiện tại của bộ đếm được lưu trong thanh ghi CNT (Counter Register).
+- Khi CNT đạt đến giá trị ARR (Auto-Reload Register), có thể kích hoạt ngắt hoặc thay đổi trạng thái của chân đầu ra.Giá trị bộ đếm này được cài đặt tối đa là 16bit tương ứng với giá trị là 65535.
+- Bộ chia tần số (Prescaler - PSC) giúp điều chỉnh tốc độ đếm của Timer. Bộ chia này có giá trị tối đa là 16 bit tương ứng với giá trị là 65535.
+- ![image](https://github.com/user-attachments/assets/6adb3394-f86a-44bd-a20a-d2b7dab84d25)
+- Tần số sau bộ chia này sẽ được tính là: fCK_CNT = fCK_PSC/(PSC+1).
+	- FCK_CNT: tần số sau bộ chia.
+	- fCK_PSC: tần số clock đầu vào cấp cho timer.
+	- PSC: chính là giá trị truyền vào được lập trình bằng phần mềm
+ 	```c
+	FTIMER= fSYSTEM/[(PSC+1)(Period+1)]
+- Ftimer : là giá trị cuối cùng của bài toán, đơn vị là hz.
+- F system : tần số clock hệ thống được chia cho timer sử dụng, đơn vị là hz.
+- PSC : giá trị nạp vào cho bộ chia tần số của timer. Tối đa là 65535.
+- Period : giá trị bộ đếm nạp vào cho timer. Tối đa là 65535.
+#### 4.2. Cấu hình Timer
+- Tương tự các ngoại vi khác, cần xác định clock cấp cho timer, các tham số cho timer được cấu hình trong struct TIM_TimBaseInitTypeDef, cuối cùng gọi hàm TIM_TimBaseInit() để khởi tạo timer.
+	```c
+ 	typedef struct
+	{
+	  uint16_t TIM_Prescaler;         /*!< Specifies the prescaler value used to divide the TIM clock.
+	                                       This parameter can be a number between 0x0000 and 0xFFFF */
+	
+	  uint16_t TIM_CounterMode;       /*!< Specifies the counter mode.
+	                                       This parameter can be a value of @ref TIM_Counter_Mode */
+	
+	  uint16_t TIM_Period;            /*!< Specifies the period value to be loaded into the active
+	                                       Auto-Reload Register at the next update event.
+	                                       This parameter must be a number between 0x0000 and 0xFFFF.  */ 
+	
+	  uint16_t TIM_ClockDivision;     /*!< Specifies the clock division.
+	                                      This parameter can be a value of @ref TIM_Clock_Division_CKD */
+	
+	} TIM_TimeBaseInitTypeDef;
+- TIM_TimeBaseInitTypeDef gồm:
+
+	- Clock division
+	- Prescaler
+	- Period 
+	- Mode
+ - ví dụ:  
+	- fSystem 72Mhz, 1s tạo 72 triệu dao động.
+	- TimerClock = fSystem/Clock_Division
+	- Giá trị prescaler quy định số dao động mà sau đó timer sẽ đếm lên 1 lần.
+	- 1 dao động mất 1/72000000 (s) 
+	```c
+ 	TIM_TimeBaseInitTypeDef TIM_TimeBaseInitStruct;
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	TIM_TimeBaseInitStruct.TIM_Prescaler = 7200-1;
+	TIM_TimeBaseInitStruct.TIM_Period = 0xFFFF;
+	TIM_TimeBaseInitStruct.TIM_ClockDivision = TIM_CKD_DIV1;
+	TIM_TimeBaseInitStruct.TIM_CounterMode = TIM_CounterMode_Up;
+	TIM_TimeBaseInit(TIM2, &TIM_TimeBaseInitStruct);
+	TIM_Cmd(TIM2, ENABLE);
+</details>
+
+<details><summary>LESSON 4: COMMUNICATION PROTOCOLS</summary>
+    <p>
+	    
+## LESSON 4: COMMUNICATION PROTOCOLS
+- Các MCU truyền nhận dữ liệu với nhau hoặc với các thiết bị thông qua tín hiệu điện áp. MCU có thể truyền nhận song song, nối tiếp các tín hiệu điện áp này thông quá các chân được cấu hình riêng biệt.
+![image](https://github.com/user-attachments/assets/00005aaf-7efc-44cd-80f1-a79179eb6a42)
+- Giao tiếp song song: Truyền nhiều bit cùng lúc, tốc độ cao nhưng tốn nhiều chân GPIO (VD: giao tiếp với RAM, LCD).
+- Giao tiếp nối tiếp: Truyền từng bit một theo thời gian (các bit nối đuôi nhau), tốc độ chậm hơn nhưng tiết kiệm chân GPIO (VD: UART, I2C, SPI).
+- Vấn đề về các bit giống nhau liền kề, MCU không phân biệt được 2 bit giống nhau liên tiếp => phải dùng các chuẩn giao tiếp
+### 1. SPI
+#### 1.1. Đặc điểm
+- SPI (Serial Peripheral Interface) là một giao thức giao tiếp nối tiếp đồng bộ tốc độ cao giữa `Master và Slave`.
+- Có các đặt điểm như sau:
+	- Chuẩn giao tiếp nối tiếp
+	- Đồng bộ: cần clock (SCK) chung.
+	- Hoạt động ở chế độ song công: Nghĩa là tại 1 thời điểm có thể xảy ra đồng thời quá trình truyền và nhận. Là giao tiếp đồng bộ, bất cứ quá trình nào cũng đều được đồng bộ với xung clock sinh ra bởi thiết bị Master. 
+	- Một Master có thể giao tiếp với nhiều Slave
+   	- Tốc độ truyền thông cao: SPI cho phép truyền dữ liệu với tốc độ rất nhanh, thường đạt được tốc độ Mbps hoặc thậm chí hàng chục Mbps. Điều này rất hữu ích khi cần truyền dữ liệu nhanh và đáng tin cậy trong các ứng dụng như truyền thông không dây, điều khiển từ xa và truyền dữ liệu đa phương tiện.
+- Sử dụng 4 dây giao tiếp:
+  ![image](https://github.com/user-attachments/assets/c0bb60dc-38a2-476c-bc46-25e64479cf4e)
+
+- **SCK (Serial Clock)**: Thiết bị Master tạo xung tín hiệu SCK và cung cấp cho Slave. Xung này có chức năng giữ nhịp cho giao tiếp SPI. Mỗi nhịp trên chân SCK báo 1 bit dữ liệu đến hoặc đi 
+-**MISO (Master Input Slave Output)**: Tín hiệu tạo bởi thiết bị Slave và nhận bởi thiết bị Master.
+- **MOSI (Master Output Slave Input)**: Tín hiệu tạo bởi thiết bị Master và nhận bởi thiết bị Slave. 
+- **SS (Đôi khi CS- Slave Select/Chip Select)**: Chọn thiết bị Slave cụ thể để giao tiếp. Để chọn Slave giao tiếp thiết bị Master chủ động kéo đường SS tương ứng xuống mức 0 (Low). 
+- SPI cho phép 1 MCU chủ giao tiếp với nhiều thiết bị tớ thông qua tín hiệu chọn thiết bị SS. Các thiết bị tớ chỉ có thể có 1 chân CS để nhận tín hiệu chọn này, tuy nhiên thiết bị chủ có thể có nhiều hơn 1 chân SS để chọn từng thiết bị muốn giao tiếp.
+![image](https://github.com/user-attachments/assets/f79785fa-df83-4050-9231-d2495b5f705a)
+#### 1.2. Khung truyền SPI
+- Mỗi chip Master hay Slave đều có một thanh ghi dữ liệu 8 bits. Quá trình truyền nhận giữa Master và Slave xảy ra đồng thời theo chu kỳ clock ở chân CLK, một byte dữ liệu được truyền theo cả 2 hướng 
+- Bắt đầu quá trình, master sẽ kéo chân CS của slave muốn giao tiếp xuống 0 để báo hiệu muốn truyền nhận.
+- Clock sẽ được cấp bởi master, tùy vào chế độ được cài, với mỗi xung clock,  1 bit sẽ được truyền từ master đến slave và slave cũng truyền 1 bit cho master.
+- Các thanh ghi cập nhật giá trị và dịch 1 bit. Như vậy sau 8 chu kỳ clock thì hoàn tất việc truyền và nhận 1 byte dữ liệu.
+- Lặp lại quá trình trên đến khi truyền xong 8 bit trong thanh ghi.
+
+![image](https://github.com/user-attachments/assets/cf5062d9-617c-425e-9d84-f2f5e3d07efd)
+#### 1.3. Các chế độ
+- SPI có 4 chế độ hoạt động phụ thuộc vào cực của xung giữ (Clock Polarity – CPOL) và pha (Phase - CPHA). 
+- CPOL dùng để chỉ trạng thái của chân SCK ở trạng thái nghỉ. Chân SCK giữ ở mức cao khi CPOL=1 (không truyền dữ liệu khi SCK =1) hoặc mức thấp khi CPOL=0 (không truyền dữ liệu khi SCK = 0).
+- CPHA dùng để chỉ các mà dữ liệu được lấy mẫu theo xung. CPHA = 0 (đọc dữ liệu ở cạnh 1, truyền dữ liệu ở cạnh 2), CPHA = 1(đọc dữ liệu ở cạnh 2, truyền dữ liệu ở cạnh 1)
+  ![image](https://github.com/user-attachments/assets/d08899e7-412f-4e28-ab5f-a706bc82407f)
+### 2. I2C
+#### 2.1. Đặc điểm
+- I2C (Inter-Integrated Circuit) là một giao thức giao tiếp nối tiếp đồng bộ được phát triển bởi Philips, giúp vi điều khiển giao tiếp với nhiều thiết bị chỉ bằng 2 dây.
+- Ưu điểm:
+	- Tiết kiệm chân GPIO (chỉ cần 2 dây để giao tiếp nhiều thiết bị).
+	- Hỗ trợ nhiều thiết bị trên cùng một bus (đa Master - đa Slave).
+	- Có thể kéo dài khoảng cách giữa các thiết bị hơn so với SPI
+- Chuẩn giao tiếp nối tiếp
+- Đồng bộ: do đó đầu ra của các bit được đồng bộ hóa với việc lấy mẫu các bit bởi một tín hiệu xung nhịp được chia sẻ giữa master và slave. Tín hiệu xung nhịp luôn được điều khiển bởi master.
+- Hoạt động ở chế độ bán song công: Có khả năng truyền và nhận, nhưng trong 1 thời điểm chỉ làm 1 nhiệm vụ (OR)
+- Một Master có thể giao tiếp với nhiều Slave
+- Sử dụng 2 dây giao tiếp:
+	- SDA (Serial Data) - đường truyền cho master và slave để gửi và nhận dữ liệu.
+	- SCL (Serial Clock) - đường mang tín hiệu xung nhịp.
+
+![image](https://github.com/user-attachments/assets/d22a3b9b-f705-4555-b1f4-4685629aa19a)
+
+- I2C nằm ở chế độ open drain: khi I2C kiểm soát đường dây sẽ hạ đường dây xuống mức 0, không kiểm soát thì sẽ thả trôi-> MCU và các thiết bị khác không hiểu nên phải có trở treo 5v để biến thành mức 1
+- Nhiều master với nhiều slave: Nhiều master có thể được kết nối với một slave hoặc nhiều slave. Sự cố với nhiều master trong cùng một hệ thống xảy ra khi hai master cố gắng gửi hoặc nhận dữ liệu cùng một lúc qua đường SDA. Để giải quyết vấn đề này, mỗi master cần phải phát hiện xem đường SDA thấp hay cao trước khi truyền tin nhắn. Nếu đường SDA thấp, điều này có nghĩa là một master khác có quyền điều khiển bus và master đó phải đợi để gửi tin nhắn. Nếu đường SDA cao thì có thể truyền tin nhắn an toàn. Để kết nối nhiều master với nhiều slave.
+#### 2.2. Khung truyền I2C
+
+![image](https://github.com/user-attachments/assets/12bf27aa-0940-42a5-a94b-d50d21a63584)
+
+- Điều kiện khởi động: Đường SDA chuyển từ mức điện áp cao xuống mức điện áp thấp trước khi đường SCL chuyển từ mức cao xuống mức thấp.
+- Khung địa chỉ: Một chuỗi 7 hoặc 10 bit duy nhất cho mỗi slave để xác định slave khi master muốn giao tiếp với nó. Master gửi địa chỉ của slave mà nó muốn giao tiếp với mọi slave được kết nối với nó. Sau đó, mỗi slave sẽ so sánh địa chỉ được gửi từ master với địa chỉ của chính nó. Nếu địa chỉ phù hợp, nó sẽ gửi lại một bit ACK điện áp thấp cho master. Nếu địa chỉ không khớp, slave không làm gì cả và đường SDA vẫn ở mức cao.
+- Bit Đọc / Ghi: Một bit duy nhất chỉ định master đang gửi dữ liệu đến slave (mức điện áp thấp) hay yêu cầu dữ liệu từ nó (mức điện áp cao).
+- Bit ACK / NACK: Mỗi khung trong một tin nhắn được theo sau bởi một bit xác nhận / không xác nhận. Nếu một khung địa chỉ hoặc khung dữ liệu được nhận thành công, một bit ACK sẽ được trả lại cho thiết bị gửi từ thiết bị nhận.
+- Khung dữ liệu: Sau khi master phát hiện bit ACK từ slave, khung dữ liệu đầu tiên đã sẵn sàng được gửi. Khung dữ liệu luôn có độ dài 8 bit và được gửi với bit quan trọng nhất trước. Mỗi khung dữ liệu ngay sau đó là một bit ACK / NACK để xác minh rằng khung đã được nhận thành công. Bit ACK phải được nhận bởi master hoặc slave (tùy thuộc vào cái nào đang gửi dữ liệu) trước khi khung dữ liệu tiếp theo có thể được gửi.
+- Điều kiện dừng: Đường SDA chuyển từ mức điện áp thấp sang mức điện áp cao sau khi đường SCL chuyển từ mức thấp lên mức cao.
+### 3. UART
+#### 3.1. Đặc điểm
+- UART (Universal Asynchronous Receiver-Transmitter – Bộ truyền nhận dữ liệu không đồng bộ) là một giao thức truyền thông phần cứng dùng giao tiếp nối tiếp không đồng bộ và có thể cấu hình được tốc độ
+- Chuẩn giao tiếp nối tiếp
+- Không đồng bộ
+- Chỉ 2 thiết bị giao tiếp với nhau
+- Hoạt động ở chế độ song công
+- Sử dụng 2 dây giao tiếp:
+	- Tx (Transmit): Chân truyền dữ liệu 
+	- Rx (Receive): Chân nhận dữ liệu
+
+![image](https://github.com/user-attachments/assets/bd10772b-fc45-402e-a545-6410f3dea615)
+
+- Dữ liệu được truyền và nhận qua các đường truyền này dưới dạng các khung dữ liệu (data frame) có cấu trúc chuẩn, với một bit bắt đầu (start bit), một số bit dữ liệu (data bits), một bit kiểm tra chẵn lẻ (parity bit) và một hoặc nhiều bit dừng (stop bit).
+- Vấn đề 2 MCU khác nhau -> phải đồng bộ 1 bit phải truyền bao nhiêu giây
+	```c
+	  Baudrate = số bits truyền được/1s. 
+	
+	Ví dụ: baudrate = 9600
+	Tức là:	Gửi 9600 bits trong	        1000ms
+		Gửi 1 bits trong 	          ? ms 	=> 0.10417ms
+	
+	=> Timer (0 -> 0.10417 ms)
+#### 3.2. Khung truyền UART
+
+![image](https://github.com/user-attachments/assets/e357fc1e-7310-44e7-a311-1fcae4f03559)
+
+- Quá trình truyền dữ liệu Uart sẽ diễn ra dưới dạng các gói dữ liệu này, bắt đầu bằng 1 bit bắt đầu, 2 chân Tx, Rx đường mức cao được kéo dần xuống thấp. Sau bit bắt đầu là 5 – 9 bit dữ liệu truyền trong khung dữ liệu của gói, theo sau là bit chẵn lẻ tùy chọn để nhằm xác minh việc truyền dữ liệu thích hợp. Sau cùng, 1 hoặc nhiều bit dừng sẽ được truyền ở nơi đường đặt tại mức cao. Vậy là sẽ kết thúc việc truyền đi một gói dữ liệu
+- Bit parity là bit quy luật chẵn lẽ để check các bit data trước đó. 2 con MCU sẽ thống nhất quy luật chẵn lẻ của bit parity. Giá trị bit partity cuar bên truyền sẽ phụ thuộc vào số bit 1 trong bit data. Còn bit parity của bên nhận sẽ kiểm tra bit parity của bên truyền của khớp vơis mình không.
+
 
 
 	
