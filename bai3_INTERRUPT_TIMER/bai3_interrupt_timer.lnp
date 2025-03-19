@@ -1,0 +1,10 @@
+--cpu Cortex-M3
+".\main.o"
+".\misc.o"
+".\stm32f10x_rcc.o"
+".\startup_stm32f10x_md.o"
+".\system_stm32f10x.o"
+--strict --scatter ".\bai3_interrupt_timer.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list ".\bai3_interrupt_timer.map" -o .\bai3_interrupt_timer.axf
