@@ -562,10 +562,140 @@ Khi giá trị CNT đạt đến giá trị **ARR (Auto-Reload Register)** đã 
 
 - Quá trình truyền dữ liệu Uart sẽ diễn ra dưới dạng các gói dữ liệu này, bắt đầu bằng 1 bit bắt đầu, 2 chân Tx, Rx đường mức cao được kéo dần xuống thấp. Sau bit bắt đầu là 5 – 9 bit dữ liệu truyền trong khung dữ liệu của gói, theo sau là bit chẵn lẻ tùy chọn để nhằm xác minh việc truyền dữ liệu thích hợp. Sau cùng, 1 hoặc nhiều bit dừng sẽ được truyền ở nơi đường đặt tại mức cao. Vậy là sẽ kết thúc việc truyền đi một gói dữ liệu
 - Bit parity là bit quy luật chẵn lẽ để check các bit data trước đó. 2 con MCU sẽ thống nhất quy luật chẵn lẻ của bit parity. Giá trị bit partity cuar bên truyền sẽ phụ thuộc vào số bit 1 trong bit data. Còn bit parity của bên nhận sẽ kiểm tra bit parity của bên truyền của khớp vơis mình không.
+</details>
 
+<details><summary>LESSON 5: SPI SOFTWARE & SPI HARDWARE</summary>
+    <p>
+        
+## LESSON 5:SPI SOFTWARE & SPI HARDWARE
+- Trên mỗi dòng vi điều khiển khác nhau module SPI sẽ được tích hợp, điều khiển bởi các thanh ghi,phần cứng, IO khác nhau, đấy gọi là SPI cứng (hardware SPI). Như vậy bản chất chuẩn truyền thông SPI giống nhau trên mỗi chip nhưng lại được cài đặt và sử dụng không giống nhau. Điều này gây thêm khó khăn cho người sử dụng khi bạn bắt đầu tìm hiểu một dòng vi điều khiển mới, bạn sẽ phải nhớ các chân MISO, SS, MOSI, SCK mỗi chip khác nhau, nhớ các thanh ghi, các chế độ hoạt động và cách cài đặt trên các dòng vi điều khiển khác nhau. 
+- vì vậy SPI Software được dùng để thực hiện giao tiếp SPI bằng phần mềm, tức là điều khiển trực tiếp các chân GPIO để mô phỏng giao thức SPI.
+- Ưu điểm:
+	- Linh hoạt: Có thể sử dụng bất kỳ chân GPIO nào, không phụ thuộc vào phần cứng hỗ trợ SPI.
+	- Dễ triển khai: Chỉ cần thao tác mức logic trên chân GPIO.
+	- Tương thích với nhiều vi điều khiển: Không cần module SPI chuyên dụng.
+- SPI dùng 4 chân để truyền nhận, gồm MISO, MOSI, CS và SCK.
+![image](https://github.com/user-attachments/assets/d916eaa1-487a-458f-af01-1d894e0472bb)
+- MISO: (Master In Slave Out) Chân nhận tín hiệu của Master nối với chân truyền của Slave, vì vậy được cấu hình Input ở Master và Output ở Slave.
+- MOSI: (Master Out SLave In) Ngược lại với MISO, cấu hình Input cho Slave và Output cho Master.
+- SCK: (Clock) Chân truyền tín hiệu xung đồng bộ từ Master cho Slave, được cấu hình Output cho Master và Input cho Slave.
+- CS: (Chip Select) Chân gửi tín hiệu chọn Slave của Master tới các Slave. Cấu hình Output cho Master và Input cho Slave. Có thể có nhiều CS để Master điều khiển nhiều Slave.
 
-
+### SPI SOFTWARE
+#### Cấu hình xung clock
+![image](https://github.com/user-attachments/assets/7a393e88-7804-4fff-8af7-84a3b7896477)
+- Xác nhận chọn các chân và cấu hình GPIO
+	```c
+	 #define SPI_SCK_Pin GPIO_Pin_0 // dinhnghia 4 chan su dung spi
+	#define SPI_MISO_Pin GPIO_Pin_1
+	#define SPI_MOSI_Pin GPIO_Pin_2
+	#define SPI_CS_Pin GPIO_Pin_3
+	#define SPI_GPIO GPIOA
+	#define SPI_RCC RCC_APB2Periph_GPIOA
+- Sử dụng 4 chân của GPIOA để giao tiếp SPI, cấp clock cho 4 chân này và định nghĩa tên từng chân theo SPI để dễ quản lí
+	```c
+ 	void RCC_config(void){
+    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+		RCC_APB2PeriphClockCmd(SPI_RCC, ENABLE);
+	}
+- dùng hàm RCC_Config để cấp clock cho TIM2(cổng APB1,dùng để cấp timer tạo hàm delay()) và GPIOA(cổng APB2, dùng để giao tiếp spi 4 chân)
+#### Cấu hình GPIO 
+- Mô phỏng xung clock bằng cách cho chân SCK lên mức 1, delay(), rồi xuống lại mức 0
+	```c
+ 	void Clock(){
+	GPIO_WriteBit(SPI_GPIO, SPI_SCK_Pin, Bit_SET);
+	delay_ms(4);
+	GPIO_WriteBit(SPI_GPIO, SPI_SCK_Pin, Bit_RESET);
+	delay_ms(4);
+	}
+ - Khởi tạo giá trị đầu cho các chân SPI, SCK chưa có xung nên sẽ là bit 0 (CPOL = 0) và CS ở mức 1 (chưa chọn Slave). Chân MOSI mức gì cũng được và chân MISO master không thể điều khiển.
+	```c
+ 	void SPISetup(void){
+	GPIO_WriteBit(SPI_GPIO, SPI_SCK_Pin,  Bit_RESET);
+	GPIO_WriteBit(SPI_GPIO, SPI_CS_Pin,   Bit_SET);
+	GPIO_WriteBit(SPI_GPIO, SPI_MOSI_Pin, Bit_RESET);//Muc gi cung duoc
+ 	GPIO_WriteBit(SPI_GPIO, SPI_MISO_Pin, Bit_RESET);
+	}
+ 
+##### Master
+- cấu hình:
+	```c
+ 	 void GPIO_Config(void){
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Pin = SPI_SCK_Pin| SPI_MOSI_Pin| SPI_CS_Pin;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_Init(SPI_GPIO, &GPIO_InitStructure);
 	
+	GPIO_InitStructure.GPIO_Pin = SPI_MISO_Pin;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_Init(SPI_GPIO, &GPIO_InitStructure);
+	}
+- Đây là cấu hình cho Master nên sẽ có ba chân GPIOA ngõ ra là SCK, MOSI và CS (mode Output pushpull)
+- tốc độ 50MHZ
+- Chân nhận tín hiệu của Master nối với chân truyền của Slave, vì vậy được cấu hình Input ở Master
+##### Slave
+- cấu hình:
+	```c
+ 	 void GPIO_Config(){
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Pin = SPI_SCK_Pin | SPI_MOSI_Pin | SPI_CS_Pin;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_Init(SPI_GPIO, &GPIO_InitStructure);
+	
+	GPIO_InitStructure.GPIO_Pin = SPI_MISO_Pin;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_Init(SPI_GPIO, &GPIO_InitStructure);
+	}
+-  3 chân SPI_SCK_Pin | SPI_MOSI_Pin | SPI_CS_Pin của slave là input, nhận tín hiệu của master
+-  chân SPI_MISO_Pin là output truyền dữ liệu của slave cho master
+#### Hàm truyền
+##### Master
+- Hàm truyền dữ liệu của master
+	```c
+ 	void SPI_Master_Transmit(uint8_t u8Data){
+	uint8_t u8Mask = 0x80;					
+	uint8_t tempData; 
+	GPIO_WriteBit(SPI_GPIO, SPI_CS_Pin, Bit_RESET); 
+	delay_ms(1);
+	for(int i=0; i<8; i++){
+		tempData = u8Data & u8Mask; 
+		if(tempData){
+			GPIO_WriteBit(SPI_GPIO, SPI_MOSI_Pin, Bit_SET);
+			delay_ms(1);
+		} else{
+			GPIO_WriteBit(SPI_GPIO, SPI_MOSI_Pin, Bit_RESET);
+			delay_ms(1);
+		}
+		u8Data=u8Data<<1; 
+		Clock();
+	}
+	GPIO_WriteBit(SPI_GPIO, SPI_CS_Pin, Bit_SET);
+	delay_ms(1);
+	}
+
+- Tạo một mặt nạ có giá trị 0b10000000 và tạo một biến đệm để xử lý bit
+- Đầu tiên sẽ phải kéo chân CS của Slave muốn giao tiếp xuống 0 và đợi 1ms để đảm bảo chân CS xuống được mức 0 và Slave nhận được tin hiệu.
+- Sau đó gửi 8 bit bằng cách dịch từng bit của u8Data bằng cách dùng (and) với u8Mask để tìm ra bit đang truyền là bit 0 hay 1 và gán vào tempData (0&1 =0; 1&1=1)
+- Cuối cùng là kiểm tra giá trị của tempData để đặt chân MOSI là cao hay thấp, tương ứng với bit 1 và 0.	
+- sau đó dịch 1 bit để tiếp tục cho lần gửi bit tiếp theo
+	```c
+ 	uint8_t DataTrans[] = {1,7,12,17,89};//Du lieu duoc truyen di
+	int main(){
+	    RCC_config();
+	    TIMER_config();
+	    GPIO_Config();
+	    SPISetup();
+	    while(1){	
+				for(int i=0; i<5; i++){
+					SPI_Master_Transmit(DataTrans[i]);
+					delay_ms(1000);
+				}
+			}
+	}
 
 
 
