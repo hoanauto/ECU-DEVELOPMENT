@@ -652,8 +652,7 @@ Khi giá trị CNT đạt đến giá trị **ARR (Auto-Reload Register)** đã 
 	}
 -  3 chân SPI_SCK_Pin | SPI_MOSI_Pin | SPI_CS_Pin của slave là input, nhận tín hiệu của master
 -  chân SPI_MISO_Pin là output truyền dữ liệu của slave cho master
-#### Hàm truyền
-##### Master
+#### Hàm truyền (Master)
 - Hàm truyền dữ liệu của master
 	```c
  	void SPI_Master_Transmit(uint8_t u8Data){
@@ -696,8 +695,49 @@ Khi giá trị CNT đạt đến giá trị **ARR (Auto-Reload Register)** đã 
 				}
 			}
 	}
+- Tại hàm main() sẽ gọi lại các hàm cấu hình GPIO và Timer. Sau đó tạo một hàm while(1) để gửi tuần tự các giá trị của mảng DataTrans
+#### Hàm nhận (Slave)
+- hàm nhận dữ liệu của Slave
+  	```c
+	uint8_t SPI_Slave_Receive(void){
+		uint8_t dataReceive =0x00;   
+		uint8_t temp = 0x00, i=0;
+		while(GPIO_ReadInputDataBit(SPI_GPIO, SPI_CS_Pin));
+		while(!GPIO_ReadInputDataBit(SPI_GPIO, SPI_SCK_Pin));
+		for(i=0; i<8;i++){ 
+			if(GPIO_ReadInputDataBit(SPI_GPIO, SPI_SCK_Pin)){
+				while(GPIO_ReadInputDataBit(SPI_GPIO, SPI_SCK_Pin))
+					temp = GPIO_ReadInputDataBit(SPI_GPIO, SPI_MOSI_Pin);
+				
+				dataReceive=dataReceive<<1;
+				dataReceive=dataReceive|temp;
+	    }
+			while(!GPIO_ReadInputDataBit(SPI_GPIO, SPI_SCK_Pin));
+		}
+		return dataReceive;
+	}
 
-
-
-
-
+- Giá trị nhận được ở Slave cũng là 8 bit.
+- Đầu tiên tạo một biến để nhận dữ liệu dataReceive và một biến đệm temp.
+- Chờ cho đến khi chân CS được kéo xuống 0
+- Chờ đến khi có xung Clock (Có dữ liệu được truyền).
+- Dữ liệu nhận được sẽ gán vào biến temp và dịch vào dataReceive
+	```c
+	uint8_t Num_Receive;
+	int main(){
+	    RCC_config();
+	    TIMER_config();
+			GPIO_Config();
+			SPISetup();
+	    TIM_SetCounter(TIM2,0); //Set up gia tri trong thanh ghi dem
+	    while(1){	
+				if(!(GPIO_ReadInputDataBit(SPI_GPIO, SPI_CS_Pin))){
+					for(int i=0; i<5; i++){
+						Num_Receive = SPI_Slave_Receive();
+					}
+				}
+			}
+	}
+- Tại hàm main sẽ liên tục kiểm tra chân CS và nhận 5 bit dữ liệu từ Master.
+### SPI HARDWARE
+#### Định nghĩa các chân SPI
