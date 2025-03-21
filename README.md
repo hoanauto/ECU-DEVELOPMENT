@@ -741,3 +741,137 @@ Khi giá trị CNT đạt đến giá trị **ARR (Auto-Reload Register)** đã 
 - Tại hàm main sẽ liên tục kiểm tra chân CS và nhận 5 bit dữ liệu từ Master.
 ### SPI HARDWARE
 #### Định nghĩa các chân SPI
+- STM32 cấu hình sẵn các chân dành cho chức năng SPI.
+  ![image](https://github.com/user-attachments/assets/aeb11ec1-5ab9-4a86-80f9-8965b5e98241)
+  	```c
+	#define SPI1_NSS 	GPIO_Pin_4
+	#define SPI1_SCK	GPIO_Pin_5
+	#define SPI1_MISO 	GPIO_Pin_6
+	#define SPI1_MOSI 	GPIO_Pin_7
+	#define SPI1_GPIO 	GPIOA
+#### Cấu hình xung Clock và chân GPIO cho SPI 
+- cấu hình cấp xung và GPIO
+	```c
+ 	void RCC_Config() 
+	{
+		RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+		RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI1, ENABLE);
+	}
+	void GPIO_Config(){
+		GPIO_InitTypeDef GPIO_InitStructure;
+		GPIO_InitStructure.GPIO_Pin = SPI1_NSS | SPI1_SCK | SPI1_MISO | SPI1_MOSI;
+		GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+		GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
+	
+		GPIO_Init(SPI1_GPIO, &GPIO_InitStructure);
+	}
+#### Cấu hình SPI 
+- cấu hình SPI cho hardware
+	```c
+ 	void SPI_Config(){
+	SPI_InitTypeDef SPI_InitStructure;
+	SPI_InitStructure.SPI_Mode = SPI_Mode_Master;
+	SPI_InitStructure.SPI_Direction = SPI_Direction_2Lines_FullDuplex;
+	SPI_InitStructure.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_16;
+	SPI_InitStructure.SPI_CPOL = SPI_CPOL_Low;
+	SPI_InitStructure.SPI_CPHA = SPI_CPHA_1Edge;
+	SPI_InitStructure.SPI_DataSize = SPI_DataSize_8b;
+	SPI_InitStructure.SPI_FirstBit = SPI_FirstBit_LSB;
+	SPI_InitStructure.SPI_CRCPolynomial = 7;
+	SPI_InitStructure.SPI_NSS = SPI_NSS_Soft;
+	
+	SPI_Init(SPI1, &SPI_InitStructure);
+	SPI_Cmd(SPI1, ENABLE);
+	}
+- Các tham số cấu hình:
+
+	- SPI_Mode: Quy định chế độ hoạt động của thiết bị SPI.
+	- SPI_Direction: Quy định kiểu truyền của thiết bị.
+	- SPI_BaudRatePrescaler: Hệ số chia clock cấp cho Module SPI.
+	- SPI_CPOL: Cấu hình giá trị SCK khi chế độ nghỉ: SPI_CPOL_Low (mức 0), SPI_CPOL_High (mức 1)
+	- SPI_CPHA: khoảnh khắc lấy mẫu dữ liệu từ Slave theo SCL: SPI_CPHA_1Edge: (ở cạnh xung đầu tiên), SPI_CPHA_2Edge: (ở cạnh xung thứ hai).
+	- SPI_DataSize: Cấu hình số bit truyền. 8 hoặc 16 bit.
+	- SPI_FirstBit: Cấu hình chiều truyền của các bit là MSB hay LSB.
+	- SPI_CRCPolynomial: Cấu hình số bit CheckSum cho SPI.
+	- SPI_NSS: Cấu hình chân SS là điều khiển bằng thiết bị hay phần mềm.
+ - Đối với Slave các thông số cấu hình giống Master nhưng khác ở SPI_Mode = SPI_Mode_Slave
+ #### Hàm truyền nhận của SPI
+ - Hàm truyền của Master:
+ 	```c
+	 void SPI_Send1Byte(uint8_t data){
+	    GPIO_WriteBit(SPI1_GPIO, SPI1_NSS, Bit_RESET);
+	   
+	    SPI_I2S_SendData(SPI1, data);
+	    while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_TXE)==0);
+	   
+	    GPIO_WriteBit(SPI1_GPIO, SPI1_NSS, Bit_SET);
+	}
+- Hàm nhận của Slave
+  	```c
+	uint8_t SPI_Receive1Byte(void){
+	    uint8_t temp;
+	    while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_BSY)==1);
+	    temp = (uint8_t)SPI_I2S_ReceiveData(SPI1);
+	    while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_RXNE)==0);
+	    return temp;
+	}
+- Một số hàm để làm việc với SPI:
+	- HàmSPI_I2S_SendData(SPI_TypeDef* SPIx, uint16_t Data), tùy vào cấu hình datasize là 8 hay 16 bit sẽ truyền đi 8 hoặc 16 bit dữ liệu. Hàm nhận 2 tham số là bộ SPI sử dụng và data cần truyền.
+	- Hàm SPI_I2S_ReceiveData(SPI_TypeDef* SPIx) trả về giá trị đọc được trên SPIx. Hàm trả về 8 hoặc 16 bit data.
+	- Hàm SPI_I2S_GetFlagStatus(SPI_TypeDef* SPIx, uint16_t SPI_I2S_FLAG) trả về giá trị 1 cờ trong thanh ghi của SPI. Các cờ thường được dùng:
+		- SPI_I2S_FLAG_TXE: Cờ báo truyền(đã truyền xong dữ liệu = trống), cờ này sẽ set lên 1 khi truyền xong data trong buffer.
+		- SPI_I2S_FLAG_RXNE: Cờ báo nhận(có dữ liệu tới), cờ này set lên 1 khi nhận xong data.
+		- SPI_I2S_FLAG_BSY: Cờ báo bận,set lên 1 khi SPI đang bận truyền nhận.
+- Hàm truyền và nhận của master
+- Đầu tiên trước khi truyền phải kéo chân CS của Slave xuống mức thấp, sau đó gọi hàm SPI_I2S_SendData(SPI1, data);, có hai tham số là bộ SPI và dữ liệu truyền đi để truyền đi 8 bit data
+- Sau đó chờ đến khi cờ TXE được kéo lên 1 (truyền xong).
+- Theo lý thuyết, Slave cũng sẽ gửi lại data cho Master nên ta sẽ chờ cờ RXNE được kéo lên 1 (nhận xong) và đọc dữ liệu được nhận trong thanh ghi DR của SPI1 bằng hàm SPI_I2S_ReceiveData(SPI1);
+- Sau khi đã hoàn thành, đặt lại chân CS lên 1 để bỏ chọn Slave.
+  	```c
+   	uint8_t SPI_Send1Byte(uint8_t data){
+	uint8_t received_data;
+	GPIO_WriteBit(SPI1_GPIO, SPI1_NSS, Bit_RESET); 
+ 
+	SPI_I2S_SendData(SPI1, data);
+	while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_TXE)==0); 
+	
+	while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_RXNE) == RESET); 
+   received_data = SPI_I2S_ReceiveData(SPI1);
+	
+	GPIO_WriteBit(SPI1_GPIO, SPI1_NSS, Bit_SET); 
+	return received_data; }
+   - Hàm truyền và nhận của slave
+  	```c
+	uint8_t SPI_Receive1Byte(uint8_t data_to_send_back){
+	    uint8_t temp;
+	    while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_BSY)==1);//Co bao nhan 	SPI_I2S_FLAG_BSY = 1 khi SPI dang ban, Cho` den khi SPI ranh?
+	    temp = (uint8_t)SPI_I2S_ReceiveData(SPI1); // Tra ve gia tri doc duoc tren SPI1
+	    while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_RXNE)==0); //cho` den khi nhan xong data SPI_I2S_FLAG_RXNE = 1
+	    
+			SPI_I2S_SendData(SPI1, data_to_send_back); // G?i d? li?u tr? l?i
+	    while(SPI_I2S_GetFlagStatus(SPI1, SPI_I2S_FLAG_TXE) == RESET);
+		return temp;}
+- Đọc chân NSS và chờ đến khi chân được kéo xuống 0
+- Sau đó, chờ đến khi SPI1 rảnh bằng cách đọc cờ SPI_I2S_FLAG_BSY. Bằng 0 thì rảnh
+- Tiếp theo đó, đọc dữ liệu nhận được từ Master thông qua hàm SPI_I2S_ReceiveData(SPI1);
+- Đọc cờ RXNE cho đến khi nhận xong. Sau đó gửi lại dữ liệu đến Master bằng hàm SPI_I2S_SendData(SPI1, data_to_send_back);
+- Sau đó chờ đến khi gửi xong TXE == 1 thì kết thúc hàm
+#### Hàm main()
+
+```c
+uint8_t Num_Receive;
+uint8_t k[5] = {12, 13, 14, 15, 16};
+int main(){
+    RCC_config();
+		GPIO_Config();
+		SPI_config();
+    while(1){   
+			while(GPIO_ReadInputDataBit(SPI1_GPIO, SPI1_NSS));
+       if(GPIO_ReadInputDataBit(SPI1_GPIO, SPI1_NSS)==0){
+          for(int i = 0; i<5; i++){
+            Num_Receive = SPI_Receive1Byte(k[i]);
+          }
+       }
+		}
+
+}
