@@ -858,20 +858,1094 @@ Khi giá trị CNT đạt đến giá trị **ARR (Auto-Reload Register)** đã 
 - Sau đó chờ đến khi gửi xong TXE == 1 thì kết thúc hàm
 #### Hàm main()
 
-```c
-uint8_t Num_Receive;
-uint8_t k[5] = {12, 13, 14, 15, 16};
-int main(){
-    RCC_config();
-		GPIO_Config();
-		SPI_config();
-    while(1){   
-			while(GPIO_ReadInputDataBit(SPI1_GPIO, SPI1_NSS));
-       if(GPIO_ReadInputDataBit(SPI1_GPIO, SPI1_NSS)==0){
-          for(int i = 0; i<5; i++){
-            Num_Receive = SPI_Receive1Byte(k[i]);
-          }
-       }
+	```c
+	uint8_t Num_Receive;
+	uint8_t k[5] = {12, 13, 14, 15, 16};
+	int main(){
+	    RCC_config();
+			GPIO_Config();
+			SPI_config();
+	    while(1){   
+				while(GPIO_ReadInputDataBit(SPI1_GPIO, SPI1_NSS));
+	       if(GPIO_ReadInputDataBit(SPI1_GPIO, SPI1_NSS)==0){
+	          for(int i = 0; i<5; i++){
+	            Num_Receive = SPI_Receive1Byte(k[i]);
+	          }
+	       }
+			}
+	}
+
+</details>
+
+<details><summary>LESSON 6: I2C SOFTWARE & I2C HARDWARE</summary>
+    <p>
+
+
+## LESSON 6: I2C SOFTWARE & I2C HARDWARE
+- I2C chỉ sử dụng hai dây để truyền dữ liệu giữa các thiết bị:
+	- SDA (Serial Data) - đường truyền cho master và slave để gửi và nhận dữ liệu.
+	- SCL (Serial Clock) - đường mang tín hiệu xung nhịp.
+   ![image](https://github.com/user-attachments/assets/24a2e4a6-578f-4913-913c-99a844e0a029)
+
+### 1. I2C SOFTWARE
+#### 1.1. Xác định các chân I2C
+- Xác định chân SCL là PB6 và SDA là PB7. Sau đó cấp xưng cho GPIOB và Timer2	
+	```c
+ 	#define I2C_SCL 	GPIO_Pin_6
+	#define I2C_SDA		GPIO_Pin_7
+	#define I2C_GPIO 	GPIOB
+	
+	void RCC_Config(){
+		RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+		RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	}
+#### 1.2. Cấu hình GPIO
+- Cấu hình SDA và SCL là Output Open-Drain (mức 0 và lơ lửng): Có khả năng kéo chân xuống mức 0 và dùng điện trở để kéo lên 1 (để tránh tín hiệu lơ lửng gây nhiễu, loạn). Gọi hàm Init để gán thông số vào các chân I2C của GPIOB
+	```c
+ 	void GPIO_Config(){
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_OD;
+	GPIO_InitStructure.GPIO_Pin = I2C_SDA| I2C_SCL;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	
+	GPIO_Init(I2C_GPIO, &GPIO_InitStructure);
+	}
+ #### 1.3. Cấu hình mô phỏng truyền nhận
+ - Tạo các Macro để sử dụng thuận tiện hơn trong việc ghi các chân SDA, SCL và đọc giá trị tại chân SDA.
+  	```c 
+	   #define WRITE_SDA_0 	GPIO_ResetBits(I2C_GPIO, I2C_SDA)
+	#define WRITE_SDA_1 	GPIO_SetBits(I2C_GPIO, I2C_SDA)
+	#define WRITE_SCL_0 	GPIO_ResetBits(I2C_GPIO, I2C_SCL)
+	#define WRITE_SCL_1 	GPIO_SetBits(I2C_GPIO, I2C_SCL)
+	#define READ_SDA_VAL 	GPIO_ReadInputDataBit(I2C_GPIO, I2C_SDA)
+ - Tạo hai Enum chứa giá trị được cấu hình của status (truyền thành công?) và ACK_bit(Giá trị của ACK)
+	```c
+ 	typedef enum {
+	NOT_OK, OK //status la bien co hai gia tri: 0:NOT_OK va 1:OK
+	} status;
+	
+	typedef enum {
+		NACK, ACK //status la bien co hai gia tri: 0:NOT_OK va 1:OK
+	} ACK_Bit;
+- Cấu hình cho các chân SPI khi chưa truyền dữ liệu thì SDA và SCL đều kéo lên mức 1
+	```c
+ 	void I2C_Config(void){
+	WRITE_SDA_1; 
+	delay_us(1);
+	WRITE_SCL_1;
+	delay_us(1);
+	}
+ - Hàm Start: Gán lại hai chân lên 1 trước khi truyền. Sau đó bắt đầu tín hiệu Start bằng cách kéo SDA xuống 0 trước sau đó kéo SCL xuống 0.
+	```c
+ 	void I2C_Start(){
+	//Dam bao rang SDA va SCL = 1 truoc khi truyen data
+	WRITE_SDA_1;
+	delay_us(1);	
+	WRITE_SCL_1;  	
+	delay_us(3);
+	//SDA keo xuong 0 truoc SCL	
+	WRITE_SDA_0;
+	delay_us(3);
+	WRITE_SCL_0;
+	delay_us(3);
+	}
+ - Tương tự hàm Stop sẽ đảm bảo SDA = 0 trước, kéo chân SCL lên 1 trước sau đó kéo SDA lên 1
+	```c
+ 	void I2C_Stop(){
+	WRITE_SDA_0;
+	delay_us(3);
+	WRITE_SCL_1; 	//SCL set to 1 before SDA.
+	delay_us(3);
+	WRITE_SDA_1;
+	delay_us(3);
+	
+ 	}
+ - Hàm gửi dữ liệu đến Slave của Master
+	- Đầu tiên, tạo mặt nạ để and với dữ liệu để tìm ra bit truyền là 1 hay 0
+	- Sau đó truyền dữ liệu qua SDA với giá trị vừa tìm được kèm theo một xung Clock được tạo bằng cách kéo và hạ chân SCL trong một khoảng delay(5us).
+	- Dịch một bit và tiếp tục and với mặt nạ để tiếp tục truyền.
+	- Sau khi truyền 8 bit dữ liệu Master sẽ chờ để nhận ACK. Mặc định SDA được kéo lên 1.
+	- Tạo xung để nhận ACK từ Slave. Nếu nhận SDA = 0 thì nhận được ACK, nếu SDA = 1 thì không nhận được ACK.
+	- Hàm trả về trạng thái của ACK nhận được.
+ 	```c
+  	status I2C_Write(uint8_t u8Data){	
+
+	status stRet;
+	for(int i=0; i<8; i++){	
+		if (u8Data & 0x80)// 0b10000000
+		{
+			WRITE_SDA_1;
+		} else {
+			WRITE_SDA_0;
+		}	
+		delay_us(3);
+		WRITE_SCL_1;
+		delay_us(5);
+		WRITE_SCL_0;
+		delay_us(2);
+		
+		u8Data <<= 1;
+	}
+	WRITE_SDA_1;					
+	delay_us(3);
+
+	WRITE_SCL_1;
+	delay_us(3);
+
+	if (READ_SDA_VAL) {	
+		stRet = NOT_OK;				
+	} else {
+		stRet = OK;					
+	}
+
+	delay_us(2);
+	WRITE_SCL_0;
+	delay_us(5);
+	
+	return stRet;
+	}
+- Hàm đọc dữ liệu từ Slave
+	- Tham số truyền vào là ACK_bit để xác nhận muốn đọc tiếp hay dừng lại
+	- Khởi tạo SDA = 1
+	- Tạo xung Clock, đồng thời đọc dữ liệu ở chân SDA và dịch vào dữ liệu 8 bit nhận được
+	- Sau đó kiểm tra tham số _ACK để xác định có truyền lại ACK hay không kèm theo xung Clock
+	- Dựa vào khung truyền của từng Slave mà sẽ có những cấu trúc truyền khác nhau
+ 	```c
+  	uint8_t I2C_Read(ACK_Bit _ACK){	
+	uint8_t i;						
+	uint8_t u8Ret = 0x00;
+	//Dam bao SDA pull_up truoc khi nhan
+	WRITE_SDA_1;
+	delay_us(3);	
+	//Tao 8 clock va doc du lieu ghi vao u8Ret
+	for (i = 0; i < 8; ++i) {
+		u8Ret <<= 1;
+		WRITE_SCL_1;
+		delay_us(3);
+		if (READ_SDA_VAL) {//Doc du lieu chan ACK
+			u8Ret |= 0x01;
 		}
+		delay_us(2);
+		WRITE_SCL_0;
+		delay_us(5);
+	}
+	if (_ACK) {	//Neu tham so truyen vao la ACK thi truyen ACK di 
+		WRITE_SDA_0;
+	} else {
+		WRITE_SDA_1;
+	}
+	delay_us(3);
+	//Tao xung de truyen ACK di
+	WRITE_SCL_1;
+	delay_us(5);
+	WRITE_SCL_0;
+	delay_us(5);
+
+	return u8Ret;
+	}
+### 2. I2C HARDWARE
+- Các bước thực hiện
+
+	- Xác định các chân GPIO của I2C
+	- Cấu hình GPIO
+	- Cấu hình I2C
+#### 2.1. Xác định các chân GPIO
+- Xác định các chân GPIO
+	```c
+	#define I2C_SCL 	GPIO_Pin_6
+	#define I2C_SDA		GPIO_Pin_7
+	#define I2C_GPIO 	GPIOB
+	#define DS1307_ADDRESS 0x50
+	
+	void RCC_Config(void) {
+		RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2|RCC_APB1Periph_I2C1, ENABLE);
+		RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB , ENABLE);
+}
+- Trên STM32F103C8T6 có hai bộ I2C1 và I2C2. Với SPI1 sẽ sử dụng hai chân PB6 và PB7. Và ta sẽ cấp xung cho Timer và I2C1, đồng thời cấp cho GPIOB để GPIO hoạt động.
+
+#### 2.2. Cấu hình GPIO
+	
+	void GPIO_Config(void) {
+	    GPIO_InitTypeDef GPIO_InitStructure;
+	
+	    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6 | GPIO_Pin_7; 
+	    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD;
+	    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	    GPIO_Init(GPIOB, &GPIO_InitStructure);
+	}
+- Tương tự với SPI, các GPIO cũng sử dụng mode AF để sử dụng cho chế độ thay thế. Nhưng với I2C sẽ sử dụng Open-Drain
+
+#### 2.3. Cấu hình I2C
+	
+ 
+	void I2C_Config(void) {
+		I2C_InitTypeDef I2C_InitStruct;
+		I2C_InitStruct.I2C_Mode = I2C_Mode_I2C;
+		I2C_InitStruct.I2C_ClockSpeed = 400000;
+		I2C_InitStruct.I2C_DutyCycle = I2C_DutyCycle_2;
+		I2C_InitStruct.I2C_Ack = I2C_Ack_Enable;
+		I2C_InitStruct.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
+	
+		I2C_Init(I2C1, &I2C_InitStruct);
+		I2C_Cmd(I2C1, ENABLE);
+		}
+- Tương tự các ngoại vi khác, các tham số I2C được cấu hình trong Struct I2C_InitTypeDef:
+	- I2C_Mode: Cấu hình chế độ hoạt động cho I2C:
+		- I2C_Mode_I2C: Chế độ I2C FM(Fast Mode);
+		- I2C_Mode_SMBusDevice&I2C_Mode_SMBusHost: Chế độ SM(Slow Mode).
+- I2C_ClockSpeed: Cấu hình clock cho I2C, tối đa 100khz với SM và 400khz ở FM.
+- I2C_DutyCycle: Cấu hình chu kì nhiệm vụ của xung:
+		- I2C_DutyCycle_2: Thời gian xung thấp/xung cao = 2;
+		- I2C_DutyCycle_16_9: Thời gian xung thấp/xung cao =16/9; Ví dụ:
+		- I2C_DutyCycle_2: tLow/tHigh = 2 => tLow = 2tHigh 100000khz, 1xung 10us 6.66us low, 3.33 high
+		- I2C_DutyCycle_16_9: tLow/tHigh = 16/9 => 9tLow = 16tHigh.
+- I2C_OwnAddress1: Cấu hình địa chỉ slave.
+- I2C_Ack: Cấu hình ACK, có sử dụng ACK hay không.
+- I2C_AcknowledgedAddress: Cấu hình số bit địa chỉ. 7 hoặc 10 bit
+#### 2.4. Các hàm truyện nhận I2C
+
+- Hàm I2C_Send7bitAddress(I2C_TypeDef* I2Cx, uint8_t Address, uint8_t I2C_Direction), gửi đi 7 bit address để xác định slave cần giao tiếp. Hướng truyền được xác định bởi I2C_Direction để thêm bit RW.
+- Hàm I2C_SendData(I2C_TypeDef* I2Cx, uint8_t Data) gửi đi 8 bit data.
+- Hàm I2C_ReceiveData(I2C_TypeDef* I2Cx) trả về 8 bit data.
+- Hàm I2C_CheckEvent(I2C_TypeDef* I2Cx, uint32_t I2C_EVENT) trả về kết quả kiểm tra I2C_EVENT tương ứng:
+	- I2C_EVENT_MASTER_MODE_SELECT: Đợi Bus I2C về chế độ rảnh.
+	- I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED: Đợi xác nhận của Slave với yêu cầu nhận của Master.
+	- I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED: Đợi xác nhận của Slave với yêu cầu ghi của Master.
+	- I2C_EVENT_MASTER_BYTE_TRANSMITTED: Đợi truyền xong 1 byte data từ Master.
+	- I2C_EVENT_MASTER_BYTE_RECEIVED: Đợi Master nhận đủ 1 byte data.
+ 	```c
+	I2C_GenerateSTART(I2C1, ENABLE);
+	 //Waiting for flag
+	 while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));
+	I2C_Send7bitAddress(I2C1, 0x44, I2C_Direction_Transmitter);
+	//And check the transmitting
+	while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));
+- Hàm truyền địa chỉ chọn Slave:
+	- Tạo tín hiệu bắt đầu bằng hàm I2C_GenerateSTART
+	- Đợi ACK từ Slave
+	- Và truyền 7 bit địa chỉ đến các Slave trong mạng để chọn Slave cần giao tiếp
+	- Chờ đến khi truyền xong và có xác nhận từ Slave
+ 	```c
+	void Send_I2C_Data(uint8_t data)
+	{
+		I2C_SendData(I2C1, data);
+		// wait for the data trasnmitted flag
+		while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED));
+	}
+- Hàm gửi 8 bit dữ liệu: Gửi data qua I2C1 và chờ đến khi hoàn tất truyền
+	```c
+	uint8_t Read_I2C_Data(){
+		
+		uint8_t data = I2C_ReceiveData(I2C1);
+		while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_RECEIVED));
+		return data;
+	}
+- Hàm nhận 8 bit dữ liệu: Sử dụng các hàm trên theo các câu trúc khác nhau để giao tiếp với slave
+</details>
+<details><summary>LESSON 7: UART</summary>
+    <p>
+        
+## LESSON 7: UART SOFTWARE & HARDWARE
+### 1. UART SOFTWARE
+#### 1.1. Xác định chân và cấu hình GPIO
+![image](https://github.com/user-attachments/assets/8779ba7d-5d3f-49b9-8c46-4f1b5651ef02)
+
+- Sử dụng các GPIO để mô phỏng quá trình truyền nhận của UART
+- Có hai bước để thực hiện:
+	- Xác định các chân UART
+	- Cấu hình GPIO
+   	```c
+	#define TX_Pin GPIO_Pin_0
+	#define RX_Pin GPIO_Pin_1
+	#define UART_GPIO GPIOA
+	#define time_duration 104
+
+	void RCC_Config(){
+		RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+		RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	}
+- Chúng ta sẽ sử dụng A0 làm TX và A1 làm RX và cấp xung cho chúng.
+	```c
+	void delay_us(uint16_t timedelay){
+	    TIM_SetCounter(TIM2, 0);
+	    while(TIM_GetCounter(TIM2)<timedelay){}
+	}
+	
+	void delay_s(uint32_t timedelay){
+	    TIM_SetCounter(TIM2, 0);
+				for(int i = 0; i < timedelay*1000000; i++){
+					delay_us(1);
+				}
+	}
+- Tạo hai hàm delay sử dụng Tỉmer2 đã được đề cập từ bài trước.
+
+	void clock(){
+		delay_us(time_duration);
+	}
+- Một hàm tạo delay, là khoảng thời gian giữa hai lần truyền dữ liệu để hai bên đồng bộ.
+- time_duration là khoảng thời gian delay khi chọn Baudrate = 9600.
+![image](https://github.com/user-attachments/assets/0c46b3e6-e939-41c9-8de0-e7d5a995878f)
+
+- BaudRate = 9600
+- Tức truyền được 9600bits/s = 9600bits/1000ms
+- Nghĩa là 1 bit truyền đi mất khoảng 0.10467ms
+- Vì thế time_duration = 104 để xấp xỉ.
+  	```C
+	void GPIO_Config(){
+		GPIO_InitTypeDef GPIOInitStruct;
+		GPIOInitStruct.GPIO_Pin = RX_Pin;
+		GPIOInitStruct.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+		GPIO_Init(GPIOA, &GPIOInitStruct);
+		//
+		GPIOInitStruct.GPIO_Pin = TX_Pin;
+		GPIOInitStruct.GPIO_Speed = GPIO_Speed_50MHz;
+		GPIOInitStruct.GPIO_Mode = GPIO_Mode_Out_PP;
+		GPIO_Init(GPIOA, &GPIOInitStruct);
+	}
+- Ta sẽ cấu hình RX kiểu Input Floating để làm ngõ vào và TX Output Push-Pull để tạo ngõ ra.
+	```c
+	void UART_Config(){
+		GPIO_SetBits(UART_GPIO, TX_Pin);
+		delay_us(1);
+	}
+- Và khi chưa truyền dữ liệu thì cả hai chân được nối mức cao.
+
+#### 1.2. Hàm mô phỏng gửi dữ liệu kí tự
+
+	```c
+	void UARTSoftware_Transmit(char c) {
+	    // Start bit
+	    GPIO_ResetBits(GPIOA, TX_Pin); // Tao dieu kien bat dau
+	    clock();
+	
+	    // Truyen các bit du lieu (LSB truoc)
+	    for (int i = 0; i < 8; i++) {
+	        if (c & (1 << i)) {
+	            GPIO_SetBits(GPIOA, TX_Pin);
+	        } else {
+	            GPIO_ResetBits(GPIOA, TX_Pin);
+	        }
+	        clock();
+	    }
+	
+	    // Stop bit
+	    GPIO_SetBits(GPIOA, TX_Pin);
+	    clock();
+	}
+- Trước khi gửi, phải kéo chân TX xuống mức và delay một chu kỳ để bắt đầu tín hiệu Start
+- Sau đó sẽ truyền lần lượt 8 bits dữ liệu bằng cách dịch và set chân TX theo giá trị vừa tìm và delay trong một khoảng chu kỳ
+- Sau khi truyền xong 8 bits dữ liệu sẽ truyền bits Stop tức kéo chân TX lên mức 1 để kết thúc truyền nhận (với trường hợp không dùng Parity).
+#### 1.3. Hàm mô phỏng nhận ký tự
+
+	```c
+	char UARTSoftware_Receive() {
+	    char c = 0;
+			// Start bit
+			while (GPIO_ReadInputDataBit(GPIOA, RX_Pin) == 1);
+	
+			delay_us(time_duration + time_duration / 2);
+	
+			for (int i = 0; i < 8; i++) {
+					if (GPIO_ReadInputDataBit(GPIOA, RX_Pin)) {
+							c |= (1 << i);
+					}
+					clock(); 
+			}
+	
+			// Đợi Stop bit
+			delay_us(time_duration / 2);
+			
+			return c;
+	}
+- Tại bên nhận sẽ chờ cho đến khi nhận được tín hiệu Start
+- Sau đó sẽ delay 1.5 chu kỳ để khi đọc dữ liệu, sẽ đọc tại vị trí giữa của một bit, nơi tín hiệu đã ổn định
+- Lần lượt nhận 8 bits dữ liệu tại chân RX và dịch vào c
+- Delay nửa chu kỳ cuối để đợi Stop bit và trả về ký tự c là dữ liệu nhận được
+  	```c
+	char data[9] = {'V', 'A', 'N', 'T', 'U', 'H', 'A', 'L', 'A'};
+	int main(){
+		RCC_Config();
+		GPIO_Config();
+		TIMER_config();
+		UART_Config();
+		for (int i = 0; i<9; i++){
+				UARTSoftware_Transmit(data[i]);
+			delay_s(1);
+		}
+			UARTSoftware_Transmit('\n');
+			
+		while(1){
+			UARTSoftware_Transmit(UARTSoftware_Receive());
+		}	
+	}
+- Hàm test sẽ lần lượt gửi 9 ký tự qua UART và sau đó sẽ chờ để nhận dữ liệu nhận về của UART.
+
+### 2. UART Hardware
+- Sử dụng UART được tích hợp trên phần cứng của vi điều khiển.
+- Các bước thực hiện
+
+	- Xác định các chân GPIO của UART
+	- Cấu hình GPIO
+	- Cấu hình UART
+- Ở bài này chúng ta sẽ sử dụng USART1 có hai chân PA9 - TX và PA10 - RX
+- Để sử dụng UART, ta phải thêm thư viện  "stm32f10x_usart.h"
+
+#### 2.1. Cấu hình GPIO
+
+
+ 
+void RCC_Config(void){
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1 | RCC_APB2Periph_GPIOA, ENABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+}
+
+void GPIO_Config(void){
+	GPIO_InitTypeDef GPIOInitStruct;
+	
+	GPIOInitStruct.GPIO_Pin = GPIO_Pin_10; //Chan RX
+	GPIOInitStruct.GPIO_Mode = GPIO_Mode_IN_FLOATING;// Neu 2 chan de AF thi bi ngan mach
+	GPIO_Init(GPIOA, &GPIOInitStruct);
+	
+	GPIOInitStruct.GPIO_Pin = GPIO_Pin_9; //Chan TX
+	GPIOInitStruct.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIOInitStruct.GPIO_Mode = GPIO_Mode_AF_PP;
+	GPIO_Init(GPIOA, &GPIOInitStruct);
+}
+- Đầu tiên phải cấp xung GPIOA để sử dụng các chân và cấp thêm cho bộ USART1.
+
+- Chân RX được cấu hình GPIO_Mode_IN_FLOATING và ngõ ra TX được cấu hình GPIO_Mode_AF_PP. Không cấu hình RX là AF_PP vì sẽ bị ngắn mạch hai chân RX và TX.
+
+#### 2.2. Cấu hình UART
+
+
+  
+void UART_Config(void){
+	USART_InitTypeDef UARTInitStruct;
+	UARTInitStruct.USART_Mode = USART_Mode_Tx | USART_Mode_Rx; //Cau hinh che do: ca truyen va nhan (song cong)
+	UARTInitStruct.USART_BaudRate = 115200; //Cau hinh toc do bit
+	UARTInitStruct.USART_HardwareFlowControl = USART_HardwareFlowControl_None; //Cau hinh kiem soat luong truyen du lieu tranh viec tran bo dem
+	UARTInitStruct.USART_WordLength = USART_WordLength_8b; //Truyen du lieu 8 hoac 9 bit
+	UARTInitStruct.USART_Parity = USART_Parity_No;
+	UARTInitStruct.USART_StopBits = USART_StopBits_1;
+	
+	USART_Init(USART1, &UARTInitStruct);
+	
+	USART_Cmd(USART1, ENABLE);
+	
+}
+- USART_Mode: Cấu hình Mode của vi điều khiển là nhận hay gửi hoặc cả hai khi sử dụng phép OR.
+
+- USART_BaudRate: Cấu hình BaudRate để đồng bộ truyền nhận dữ liệu giữa hai vi điều khiển. Phổ biến nhất là 9600 và 115200.
+
+- USART_HardwareFlowControl: Dùng để bật chế độ kiểm soát luồng truyền để tránh việc tràn bộ đệm. Có các giá trị sau:
+	```c
+	USART_HardwareFlowControl_None       
+	USART_HardwareFlowControl_RTS    // Request to Send   
+	USART_HardwareFlowControl_CTS    // Clear to Send
+	USART_HardwareFlowControl_RTS_CTS
+- RTS (Request To Send - Yêu cầu gửi)
+	- Được điều khiển bởi thiết bị gửi dữ liệu.
+	- Khi thiết bị gửi dữ liệu sẵn sàng để truyền, nó kéo RTS xuống mức thấp (Active Low).
+	Khi bộ đệm của thiết bị nhận đầy, nó kéo RTS lên mức cao, báo cho thiết bị gửi tạm dừng truyền dữ liệu.
+- CTS (Clear To Send - Cho phép gửi)
+
+	- Được điều khiển bởi thiết bị nhận dữ liệu.
+	- Khi bộ đệm của thiết bị nhận còn trống, nó kéo CTS xuống mức thấp, cho phép thiết bị gửi tiếp tục truyền dữ liệu.
+	- Nếu bộ đệm đầy, thiết bị nhận kéo CTS lên mức cao, yêu cầu dừng gửi dữ liệu. Thiết bị A muốn gửi dữ liệu:
+- Kiểm tra CTS từ thiết bị B:
+	- Nếu CTS = LOW, thiết bị A có thể gửi dữ liệu.
+	- Nếu CTS = HIGH, thiết bị A tạm dừng gửi để tránh tràn bộ đệm. Thiết bị B nhận dữ liệu:
+	- Khi bộ đệm gần đầy, RTS = HIGH, báo hiệu thiết bị A tạm dừng truyền dữ liệu.
+	- Khi bộ đệm có không gian trống, RTS = LOW, cho phép tiếp tục truyền.
+- USART_WordLength: Khai báo dữ liệu truyền là 8 bits hoặc 9 bits
+
+- USART_StopBits: Cấu hình số lượng Stopbit
+
+  	- USART_StopBits_1
+	- USART_StopBits_0_5 
+	- USART_StopBits_2    
+	- USART_StopBits_1_5    
+	- USART_Parity: Cấu hình sử dụng Parity, có hai loại là chẵn hoặc lẽ, có thể không cần sử dụng
+	```c
+	#define USART_Parity_No
+	#define USART_Parity_Even
+	#define USART_Parity_Odd 
+- Một số hàm được thiết lập sẵn trong UART
+	- Hàm USART_SendData(USART_TypeDef* USARTx, uint16_t Data) truyền data từ UARTx. Data này đã được thêm bit chẵn/lẻ tùy cấu hình.
+	- Hàm USART_ReceiveData(USART_TypeDef* USARTx) nhận data từ UARTx.
+	- Hàm USART_GetFlagStatus(USART_TypeDef* USARTx, uint16_t USART_FLAG) trả về trạng thái cờ USART_FLAG tương ứng:
+			- USART_FLAG_TXE: Cờ truyền, set lên 1 nếu quá trình truyền hoàn tất.
+			- USART_FLAG_RXNE: Cờ nhận, set lên 1 nếu quá trình nhận hoàn tất.
+			- USART_FLAG_IDLE: Cờ báo đường truyền đang ở chế độ Idle.
+			- USART_FLAG_PE: Cờ báo lỗi Parity.
+- Hàm gửi một ký tự
+	```c
+	void UART_SendChar(USART_TypeDef *USARTx, char data){
+		
+		while(USART_GetFlagStatus(USARTx, USART_FLAG_TXE)==RESET); // Cho khi thanh ghi DR trong de chen du lieu moi de gui
+		
+		USART_SendData(USARTx, data);
+		
+		while(USART_GetFlagStatus(USARTx, USART_FLAG_TC)==RESET);//Cho den khi truyen thanh cong
+		
+		
+	}
+- Đợi đến khi thanh ghi DR trống đến thêm dữ liệu mới và gửi
+
+- Gửi dữ liệu bằng hàm USART_SendData(USARTx, data);
+
+- Sau đó chờ đến khi truyền thành công
+
+- Hàm nhận một ký tự
+	```c
+	char UART_ReceiveChar(USART_TypeDef *USARTx){
+		char tmp = 0x00;
+		
+		while(USART_GetFlagStatus(USARTx, USART_FLAG_RXNE)==RESET);
+		
+		tmp = USART_ReceiveData(USARTx);
+		
+		return tmp;
+	}
+- Chờ đến khi nhận hoạt tất
+- Nhận Data từ UARTx gán vào tmp.
+- ví dụ:
+	```c
+	uint8_t DataTrans[] = {'V','A','N','T','U'};//Du lieu duoc truyen di
+	int main() {
+		RCC_Config();
+		GPIO_Config();
+		UART_Config();
+		TIMER_config();	
+		for(int i = 0; i<5; ++i){
+				delay_ms(1998);
+				UART_SendChar(USART1, DataTrans[i]);
+				delay_ms(2);
+			}
+		UART_SendChar(USART1, '\n');
+	
+		while(1){
+			UART_SendChar(USART1,UART_ReceiveChar(USART1));
+		}
+	}
+- Sử dụng main() để test bằng cách gửi 5 bytes dữ liệu qua USART1 và sau đó chờ để nhận dữ liệu về.
+</details>
+<details><summary>LESSON 8: INTERRUPT</summary>
+    <p>
+        
+## LESSON 8: INTERRUPT
+### 1. Ngắt ngoài
+#### 1.1. Định nghĩa
+- External interrupt (EXTI) hay còn gọi là ngắt ngoài. Là 1 sự kiện ngắt xảy ra khi có tín hiệu can thiệp từ bên ngoài, từ phần cứng, người sử dụng hay ngoại vi,…
+- Sơ đồ khối của các khối điều khiển ngắt ngoài
+  ![image](https://github.com/user-attachments/assets/d62c10f3-51b3-42f1-94a5-ae416671dd67)
+- Ngắt ngoài của STM32F103 có 16 line ngắt EXTI(n): từ EXTI0 -> EXTI15
+  	-  Line0 sẽ chung cho tất cả chân Px0 ở tất cả các Port, với x là tên của Port A, B…
+	-  Line0 nếu chúng ta đã chọn chân PA0 (chân 0 ở port A) làm chân ngắt thì tất cả các chân 0 ở các Port khác không được khai báo làm chân ngắt ngoài nữa
+	- Line1 nếu chúng ta chọn chân PB1 là chân ngắt thì tất cả chân 1 ở các Port khác không được khai báo làm chân ngắt nữa.
+- Các line ngắt sẽ được phân vào các Vector ngắt khác nhau tương ứng.
+  ![image](https://github.com/user-attachments/assets/be1c8848-dba8-4b76-8194-71a2a86c80d3)
+#### 1.2. Cấu hình ngắt ngoài
+- Xác định chân GPIO input, bật clock cho GPIO tương ứng và cho AFIO
+  	```c
+   	void RCC_Config(){
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
+	}
+- Cấu hình chân input ngắt:
+	```c
+ 	void GPIO_Config(void){
+	GPIO_InitTypeDef GPIOInitStruct;
+	//Cau hinh cho chan interrupt PA0
+	GPIOInitStruct.GPIO_Mode = GPIO_Mode_IPU; //Input Pull_up
+	GPIOInitStruct.GPIO_Pin = GPIO_Pin_0;
+	GPIOInitStruct.GPIO_Speed = GPIO_Speed_50MHz;
+	
+	GPIO_Init(GPIOA, &GPIOInitStruct);
+	}
+- Cấu hình chân ngắt là input và cấu hình thêm có trở kéo lên, kéo xuống tùy vào mục đích sử dụng
+- Cấu hình ngắt:
+  	```c
+  	void EXTI_Config(void) {
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOA,GPIO_PinSource0); //PA0
+	
+	EXTI_InitTypeDef EXTIInitStruct;
+	
+	EXTIInitStruct.EXTI_Line = EXTI_Line0;//Xac dinh duong ngat (EXTIn) co 18 line va 15 line duoc cau hinh san, 3line mo rong 
+	EXTIInitStruct.EXTI_Mode = EXTI_Mode_Interrupt; //Thuc thi ham ngat khi xay ra ngat Even thi khong thuc thi ham ngat
+	EXTIInitStruct.EXTI_Trigger = EXTI_Trigger_Falling;//chon canh kich hoat ngat
+	EXTIInitStruct.EXTI_LineCmd = ENABLE;
+	
+	EXTI_Init(&EXTIInitStruct);
+  	}
+- `Hàm GPIO_EXTILineConfig(uint8_t GPIO_PortSource, uint8_t GPIO_PinSource)` cấu hình chân ở chế độ sử dụng ngắt ngoài
+	- GPIO_PortSource: Chọn Port để sử dụng làm nguồn cho ngắt ngoài.
+	- GPIO_PinSource: Chọn Pin để cấu hình.
+- External Interrupt có struct `Struct EXTI_InitTypeDef` giữ các thuộc tính của ngắt.
+	- EXTI_Line: Cấu hình Line ngắt, EXTI_Line0-15
+	- EXTI_Mode: Chế độ hoạt động cho ngắt ngoài. Có hai chế độ:
+			- EXTI_Mode_Interrupt: Khi ngắt xảy ra sẽ tạo ra ngắt và chạy hàm thực thi.
+			- EXTI_Mode_Event: Khi có ngắt chỉ báo cho CPU biết chứ không thực thi hàm phục vụ ngắt.
+	- EXTI_Trigger: Xác định khi nào xảy ra Ngắt
+		- EXTI_Trigger_Rising: Ngắt cạnh lên
+		- EXTI_Trigger_Falling: Ngắt cạnh xuống
+		- EXTI_Trigger_Rising_Falling: Cả hai
+	- EXTI_LineCmd: Cho phép ngắt ở Line đã cấu hình.
+	- EXTI_Init(&EXTIInitStruct): Lưu cài đặt vào thanh ghi.
+ #### 1.3. Cấu hình quản lý ngắt NVIC
+ - `NVIC (Nested Vectored Interrupt Controller)` chịu trách nhiệm quản lý và xử lý các ngắt. NVIC cho phép MCU xử lý nhiều ngắt từ các nguồn khác nhau, có thể ưu tiên ngắt và hỗ trợ ngắt lồng nhau.
+ - Priority Group xác định cách phân chia bit giữa Preemption Priority và SubPriority bằng cách sử dụng hàm `NVIC_PriorityGroupConfig(uint32_t PriorityGroup)`. Trong đó:
+	- Preemption Priority xác định mức độ ưu tiên chính của ngắt và quy định ngắt nào có thể được lồng vào.
+	- SubPriority: khi các ngắt có cùng mức Preemption Preemption, thì sẽ xem xét tới SubPriority.
+ ![image](https://github.com/user-attachments/assets/2484ff88-1b02-44be-87b6-47296b156cd9)
+-  Sẽ có 4 bits dùng để quan lý hai loại ưu tiên trên và hàm NVIC_PriorityGroupConfig sẽ chia 4 bits này ra để cấu hình.
+- Ví dụ khi cấu hình là NVIC_PriorityGroup_1 Thì một bit sẽ được sử dụng cho Preemption Priority và 3 bits sẽ dùng cho SubPriority.
+- Bộ NVIC cấu hình các tham số ngắt và quản lý các vecto ngắt. Các tham số được cấu hình trong NVIC_InitTypeDef, bao gồm:
+	- NVIC_IRQChannel: Cấu hình Line ngắt, Enable line ngắt tương ứng với ngắt sử dụng.
+   		- Các Line0 đến Line4 sẽ được phân vào các vector ngắt riêng tương ứng EXTI0 -> EXTI4,
+		- Line5->Line9 được phân vào vector ngắt EXTI9_5,
+		- Line10->Line15 được phân vào vecotr EXTI15_10.
+	- NVIC_IRQChannelPreemptionPriority: Cấu hình độ ưu tiên của ngắt.
+	- NVIC_IRQChannelSubPriority: Cấu hình độ ưu tiên phụ.
+	- NVIC_IRQChannelCmd: Cho phép ngắt.
+- Ngoài ra, NVIC_PriorityGroupConfig(); cấu hình các bit dành cho ChannelPreemptionPriority và ChannelSubPriority: 
+	- NVIC_PriorityGroup_0: 0 bits for pre-emption priority 4 bits for subpriority
+	- NVIC_PriorityGroup_1: 1 bits for pre-emption priority 3 bits for subpriority
+ 	- NVIC_PriorityGroup_2: 2 bits for pre-emption priority 2 bits for subpriority
+	- NVIC_PriorityGroup_3: 3 bits for pre-emption priority 1 bits for subpriority
+ 	- NVIC_PriorityGroup_4: 4 bits for pre-emption priority 0 bits for subpriority
+	```c
+ 	void NVIC_Config(void){
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);//Cau hinh so bit cua Preemption Priority vaf Sub Prioriry
+	
+	NVIC_InitTypeDef NVICInitStruct;
+
+	NVICInitStruct.NVIC_IRQChannel = EXTI0_IRQn; //Dang cau hinh ngat Line0 nen chon vector ngat EXTI0_IRQn
+	NVICInitStruct.NVIC_IRQChannelPreemptionPriority = 1; //mamg gia tri tu 0-3 vi cai dat 2bit cho Preemption Priority
+	NVICInitStruct.NVIC_IRQChannelSubPriority = 1;	//mamg gia tri tu 0-3 vi cai dat 2bit cho Sub Priority
+	NVICInitStruct.NVIC_IRQChannelCmd = ENABLE;
+	
+	NVIC_Init(&NVICInitStruct);
+	}
+#### 1.4. Hàm phục vụ ngắt
+- Ngắt trên từng line có hàm phục riêng của từng line. Có tên cố định:
+	- `EXTIx_IRQHandler()` (x là line ngắt tương ứng) và hàm này đã được định nghĩa sẵn trên hệ thống ở dạng WEAK tức là có thể ghi đè được.
+   	```c
+   	EXPORT  EXTI0_IRQHandler           [WEAK]  
+	EXPORT  EXTI1_IRQHandler           [WEAK]  
+	EXPORT  EXTI2_IRQHandler           [WEAK]
+	EXPORT  EXTI3_IRQHandler           [WEAK]
+	EXPORT  EXTI4_IRQHandler           [WEAK]
+	- `Hàm EXTI_GetITStatus(EXTI_Linex)`, Kiểm tra cờ ngắt của line x tương ứng. 
+	- `Hàm EXTI_ClearITPendingBit(EXTI_Linex)`: Xóa cờ ngắt ở line x.
+- Trong hàm phục vụ ngắt ngoài, chúng ta sẽ thực hiện:
+	- Kiểm tra ngắt đến từ line nào, có đúng là line cần thực thi hay không?
+	- Thực hiện các lệnh, các hàm.
+	- Xóa cờ ngắt ở line.
+ - cú pháp hàm:
+   	```c
+    	void EXTI0_IRQHandler()
+	{	if(EXTI_GetITStatus(EXTI_Line0) != RESET)
+	{
+
+	}
+	EXTI_ClearITPendingBit(EXTI_Line0);
+	}
+- ví dụ:
+  	```c
+   	//Ham xu ly khi co ngat line0
+	void EXTI0_IRQHandler(){	
+	if(EXTI_GetITStatus(EXTI_Line0) != RESET){ //Kiem tra co ngat cua Line0
+		for(int i = 0; i<5; i++){
+			GPIO_SetBits(GPIOC, GPIO_Pin_13);
+			delay_ms(200);
+			GPIO_ResetBits(GPIOC, GPIO_Pin_13);
+			delay_ms(200);
+		}
+	}
+	EXTI_ClearITPendingBit(EXTI_Line0); //Xoa co ngat cua line0
+	}
+	int main(){
+		RCC_Config();
+		GPIO_Config();
+		EXTI_Config();
+		NVIC_Config();
+		TIMER_config();
+		while(1){
+			GPIO_SetBits(GPIOC, GPIO_Pin_13);
+			delay_ms(3000);
+			GPIO_ResetBits(GPIOC, GPIO_Pin_13);
+			delay_ms(3000);
+	  }   
+	}
+### 2. Ngắt Timer
+- Tương tự với ngắt ngoài thì ngắt timer cũng cần cấp clock cho AFIO
+#### 2.1. Cấu hình ngắt timer
+	```c
+ 	TIM_TimeBaseInitTypeDef TIM_TimeBaseInitStruct;
+	TIM_TimeBaseInitStruct.TIM_ClockDivision = TIM_CKD_DIV2; // f = 36Mhz 
+	TIM_TimeBaseInitStruct.TIM_Prescaler = 36000-1; //1ms đếm lên một lần
+	TIM_TimeBaseInitStruct.TIM_Period =5000-1; //Chu kỳ 5000 tức đếm lên 5000 lần thì reset tức 5s.
+	TIM_TimeBaseInitStruct.TIM_CounterMode = TIM_CounterMode_Up;
+	TIM_TimeBaseInit(TIM2, &TIM_TimeBaseInitStruct);
+	TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE); //TIM_IT_Update: Khi Timer cập nhật lại bộ đếm về 0 thì tạo ngắt.
+	TIM_Cmd(TIM2, ENABLE);
+ #### 2.2. Cấu hình NVIC
+ 	```c
+  	void NVIC_Config(void){
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);//Cau hinh so bit cua Preemption Priority vaf Sub Prioriry
+	
+	NVIC_InitTypeDef NVICInitStruct;
+
+	NVICInitStruct.NVIC_IRQChannel = TIM2_IRQn; //Cau hinh channel ngat la Timer2
+	NVICInitStruct.NVIC_IRQChannelPreemptionPriority = 0; //mamg gia tri tu 0-3 vi cai dat 2bit cho Preemption Priority
+	NVICInitStruct.NVIC_IRQChannelSubPriority = 0;	//mamg gia tri tu 0-3 vi cai dat 2bit cho Sub Priority
+	NVICInitStruct.NVIC_IRQChannelCmd = ENABLE;
+	
+	NVIC_Init(&NVICInitStruct);
+	}
+ - ví dụ nhấp led:
+	```c
+ 	void delay_ms(uint16_t timedelay){
+	count = 0;
+	while(count < timedelay);
+}
+
+void TIM2_IRQHandler()
+{
+	if(TIM_GetITStatus(TIM2, TIM_IT_Update)){ //Kiem tra co ngat TIM_IT_UPDATe
+		count++;
+	}
+	// Clears the TIM2 interrupt pending bit
+	TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+}
+
+
+int main() {
+	RCC_Config();
+	TIM_Config();
+	GPIO_Config();
+	NVIC_Config();
+	while(1){
+		GPIO_ResetBits(GPIOC, GPIO_Pin_13);
+		delay_ms(2000);
+		GPIO_SetBits(GPIOC, GPIO_Pin_13);
+		delay_ms(2000);
+	}
+	}
+ ### 3. Ngắt truyền thông
+- STM32F1 hỗ trọ các ngắt cho các giao thức truyền nhận như SPI, I2C, UART…
+- Ở bài này ta sẽ ví dụ với UART ngắt.
+- Các ngắt ở SPI, I2C… sẽ được cấu hình tương tự như UART.
+#### 3.1. Cấu hình ngắt truyền thông
+	```c
+	void UART_Config(void){
+	USART_InitTypeDef UARTInitStruct;
+	UARTInitStruct.USART_Mode = USART_Mode_Tx | USART_Mode_Rx; //Cau hinh che do: ca truyen va nhan (song cong)
+	UARTInitStruct.USART_BaudRate = 9600; //Cau hinh toc do bit
+	UARTInitStruct.USART_HardwareFlowControl = USART_HardwareFlowControl_None; //Cau hinh kiem soat luong truyen du lieu tranh viec tran bo dem
+	UARTInitStruct.USART_WordLength = USART_WordLength_8b; //Truyen du lieu 8 hoac 9 bit
+	UARTInitStruct.USART_Parity = USART_Parity_No;
+	UARTInitStruct.USART_StopBits = USART_StopBits_1;
+	
+	USART_Init(USART1, &UARTInitStruct);
+	
+	USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);// Khi co du lieu gui toi thi goi ham ngat
+	
+	USART_Cmd(USART1, ENABLE);
+	}
+- Hàm `USART_ITConfig(USART_TypeDef* USARTx, uint16_t USART_IT, FunctionalState NewState)` gồm ba tham số:
+	- USART_TypeDef* USARTx: Bộ UART cần cấu hình.
+	- uint16_t USART_IT: Chọn nguồn ngắt UART, Có nhiều nguồn ngắt từ UART, ở bài này ta chú ý đến ngắt truyền (USART_IT_TXE) và ngắt nhận (USART_IT_RXNE).
+	- FunctionalState NewState: Cho phép ngắt.
+ #### 3.2. Cấu hình NVIC 
+
+ void NVIC_Config(void){
+	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
+	
+	NVIC_InitTypeDef NVIC_InitStruct;
+
+	NVIC_InitStruct.NVIC_IRQChannel = USART1_IRQn;
+	NVIC_InitStruct.NVIC_IRQChannelPreemptionPriority = 1;
+	NVIC_InitStruct.NVIC_IRQChannelSubPriority = 1;
+	NVIC_InitStruct.NVIC_IRQChannelCmd = ENABLE;
+	NVIC_Init(&NVIC_InitStruct);
 
 }
+#### 3.3. Hàm phục vụ ngắt
+- Hàm USARTx_IRQHandler() sẽ được gọi nếu xảy ra ngắt trên Line ngắt UART đã cấu hình.
+- Hàm USART_GetITStatus kiểm tra các cờ ngắt UART. Hàm này nhận 2 tham số là bộ USART và cờ tương ứng cần kiểm tra:
+	- USART_IT_RXNE: Cờ ngắt nhận, cờ này set lên 1 khi bộ USART phát hiện data truyền tới.
+	- USART_IT_TXE: Cờ ngắt truyền, cờ này set lên 1 khi USART truyền data xong.
+	- Có thể xóa cờ ngắt, gọi hàm USART_ClearITPendingBit để đảm bảo không còn ngắt trên line (thông thường cờ ngắt sẽ tự động xóa).
+ - ví dụ:
+	```c
+ 	
+	uint8_t UART_ReceiveChar(USART_TypeDef *USARTx){
+		uint8_t  data = 0x00;
+		while(USART_GetFlagStatus(USARTx, USART_FLAG_RXNE)==RESET); //cho co nhan bat len 1 ( nhan hoan tat) thi tra ve gia tri data
+		data = USART_ReceiveData(USARTx);
+		return data;
+	}
+	
+	uint8_t Data_Receive;
+	
+	void USART1_IRQHandler(){
+		if(USART_GetITStatus(USART1, USART_IT_RXNE)!=RESET){
+			Data_Receive = UART_ReceiveChar(USART1);
+		}
+		USART_ClearITPendingBit(USART1, USART_IT_RXNE);
+	}
+	
+	uint16_t count = 0;
+	int main() {
+		RCC_Config();
+		GPIO_Config();
+		UART_Config();
+		TIMER_config();
+		NVIC_Config();
+		while(1){
+			count++;
+			delay_ms(1000);
+		}
+	}
+ - Tại hàm phục vụ ngắt sẽ thực thi khi có dữ liệu được nhận tại USART1 để không bị mất dữ liệu và tại chương trình chính sẽ cộng biến Count lên 1.
+</details>
+<details><summary>LESSON 9: ADC</summary>
+    <p>
+        
+## LESSON 9: ADC
+### 1. Định nghĩa
+- ADC (Analog-to-Digital Converter) là 1 mạch điện tử lấy điện áp tương tự làm tín hiệu đầu vào và chuyển đổi nó thành dữ liệu số (1 giá trị đại diện cho mức điện áp trong mã nhị phân).
+![image](https://github.com/user-attachments/assets/b127b2ba-814e-4e91-808d-a4bdb3488e5f)
+- ADC hoạt động theo cách chia mức tín hiệu tương tự thành nhiều mức khác nhau.
+![image](https://github.com/user-attachments/assets/97f66bb1-1dd2-4238-8944-0059d4c9a84f)
+- Bằng việc so sánh giá trị điện áp mỗi lần lấy mẫu với 1 mức nhất định, ADC chuyển đổi tín hiệu tương tự và mã hóa các giá trị về giá trị nhị phân tương ứng.
+- Khả năng chuyển đổi của ADC được quyết định bởi 2 yếu tố chính:
+	- Độ phân giải: Số bit mà ADC sử dụng để mã hóa tín hiệu. Có thể xem như là số mức mà tín hiệu tương tự được biểu diễn. ADC có độ phân giải càng cao thì cho ra kết quả chuyển đổi càng chi tiết.
+
+	- Tần số/chu kì lấy mẫu: tốc độ/khoảng thời gian giữa 2 lần mã hóa. Tần số lấy mẫu càng lớn thì tín hiệu sau khi chuyển đổi sẽ có độ chính xác càng cao. Khả năng tái tạo lại tín hiệu càng chính xác.
+	  - `Tần số lấy mẫu = 1/(thời gian lấy mẫu+ Tg chuyển đổi.)`
+
+-> **Tần số lấy mẫu phải lớn hơn tần số của tín hiệu ít nhất 2 lần để đảm bảo độ chính xác khi khôi phục lại tín hiệu.**
+### 2. ADC trong STM32
+- STM32F103C8 có 2 bộ ADC đó là ADC1 và ADC2 với nhiều mode hoạt động.
+- Kết quả chuyển đổi được lưu trữ trong thanh ghi 16 bit.
+
+	- Độ phân giải 12 bit.
+	- Có các ngắt hỗ trợ.
+	- Có thể điều khiển hoạt động ADC bằng xung Trigger.
+	- Thời gian chuyển đổi nhanh : 1us tại tần số 65Mhz.
+	- Có bộ DMA giúp tăng tốc độ xử lí.
+- Các chế độ của ADC: Có 16 kênh ADC nhưng tại một thời điểm chỉ có một kênh được chuyển đổi dữ liệu
+- Regular Conversion:
+	- Single: ADC chỉ đọc 1 kênh duy nhất, và chỉ đọc khi nào được yêu cầu.
+	- Single Continuous: ADC sẽ đọc một kênh duy nhất, nhưng đọc dữ liệu nhiều lần liên tiếp (Có thể được biết đến như sử dụng DMA để đọc dữ liệu và ghi vào bộ nhớ).
+	- Scan: Multi-Channels: Quét qua và đọc dữ liệu nhiều kênh, nhưng chỉ đọc khi nào được yêu cầu.
+	- Scan: Continuous Multi-Channels Repeat: Quét qua và đọc dữ liệu nhiều kênh, nhưng đọc liên tiếp nhiều lần giống như Single Continous.
+- Injected Conversion:
+- Trong trường hợp nhiều kênh hoạt động. Khi kênh có mức độ ưu tiên cao hơn có thể tạo ra một Injected Trigger. Khi gặp Injected Trigger thì ngay lập tức kênh đang hoạt động bị ngưng lại để kênh được ưu tiên kia có thể hoạt động.
+-  Giả sử ta cần đo điện áp tối thiểu là 0V và tối đa là 3.3V, trong STM32 sẽ chia 0 → 3.3V thành 4096 khoảng giá trị (từ 0 → 4095, do 2^12 = 4096), giá trị đo được từ chân IO tương ứng với 0V sẽ là 0, tương ứng với 1.65V là 2047 và tương ứng 3.3V sẽ là 4095.
+#### 2.1. Cấp clock cho ADC
+- Cấp xung cho bộ ADC và GPIO để cử dụng Pin, đồng thời cũng phải cấp cho bộ AFIO.
+	```c
+ 	void RCC_Config(void){
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_ADC1 | RCC_APB2Periph_GPIOA | RCC_APB2Periph_AFIO, ENABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	}
+#### 2.2. Cấu hình GPIO 
+-  Cấu hình chân PA0 với chức năng Analog Input GPIO_Mode_AIN
+	```c
+ 	void GPIO_Config(void){
+	GPIO_InitTypeDef GPIO_InitStruct;
+	
+	GPIO_InitStruct.GPIO_Mode = GPIO_Mode_AIN; //Analog input
+	GPIO_InitStruct.GPIO_Pin = GPIO_Pin_0;
+	GPIO_InitStruct.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_Init(GPIOA, &GPIO_InitStruct);
+	}
+ #### 2.3. Cấu hình ADC
+
+
+ void ADC_Config(void){
+	ADC_InitTypeDef ADC_InitStruct;
+	
+	ADC_InitStruct.ADC_Mode = ADC_Mode_Independent; //Hoat dong nhu ADC binh thuong, doc lap voi nhau va khong can kich hoat
+	ADC_InitStruct.ADC_NbrOfChannel = 1; //NumberOfChannel so luong kenh can cau hinh (1-16)
+	ADC_InitStruct.ADC_ContinuousConvMode = ENABLE;//Hoat dong o che do Continous hay khong
+	ADC_InitStruct.ADC_ExternalTrigConv = ADC_ExternalTrigConv_None; //Cau hinh cho phep su dung Trigger (tin hieu de bat dau chuyen doi ADC)
+	ADC_InitStruct.ADC_ScanConvMode = DISABLE; //Co su dung Scan de quet nhieu kenh khong
+	ADC_InitStruct.ADC_DataAlign = ADC_DataAlign_Right;//Cau hinh de can le cho Data (ADC 12bit luu vao 16bit bi du 4 bit), ghi vao LSB hay MSB
+
+	ADC_Init(ADC1, &ADC_InitStruct);
+	
+	ADC_RegularChannelConfig(ADC1, ADC_Channel_0, 1, ADC_SampleTime_55Cycles5);
+	
+	ADC_Cmd(ADC1, ENABLE);
+	//Bat dau qua trinh chuyen doi (Vi chon che do Continous nen chi can goi 1 lan)
+	ADC_SoftwareStartConvCmd(ADC1, ENABLE);
+}
+
+- ADC_Mode: Cấu hình chế độ hoạt động cho bộ ADC
+	- ADC_Mode_Independent: Các kênh hoạt động độc lập với nhau.                 
+	- ADC_Mode_RegInjecSimult: Sử dụng cả hai mode Regular và Injected.                      
+	- ADC_Mode_InjecSimult: Hoạt động chế độ Injected                  
+	- ADC_Mode_RegSimult: Hoạt động ở chế độ Regular                                      
+- ADC_NbrOfChannel: Số lượng ADC cần cấu hình 1-16
+
+- ADC_ContinuousConvMode: Có chuyển đổi ADC liên tục hay không ENABLE hoặc DISABLE
+
+- ADC_ExternalTrigConv: Cấu hình sử dụng kích chuyển đổi ADC ở bên ngoài như Timer, External Trigger.
+
+- ADC_ScanConvMode: Có sử dụng Mode Scan để quét qua nhiều kênh hay không
+- ADC_DataAlign: Cấu hình căn lề cho data. Vì bộ ADC xuất ra giá trị 12bit, được lưu vào biến 16 hoặc 32 bit nên phải căn lề các bit về trái hoặc phải. Nếu căn phải thì dữ liệu đọc giữ nguyên, căn trái dữ liệu đọc gấp 16 lần thực tế nếu được lưu vào biến 16 bits
+
+- Ngoài các tham số trên, cần cấu hình thêm thời gian lấy mẫu, thứ tự kênh ADC khi quét, - - 
+- ADC_RegularChannelConfig(ADC_TypeDef* ADCx, uint8_t ADC_Channel, uint8_t Rank, uint8_t ADC_SampleTime)
+
+	- Rank: Ưu tiên của kênh ADC. Cao nhất 1, thấp nhất 16
+	- SampleTime: Thời gian lấy mẫu tín hiệu.
+   		```c
+		 ADC_SampleTime_1Cycles5: Sample time equal to 1.5 cycles
+		 ADC_SampleTime_7Cycles5: Sample time equal to 7.5 cycles
+		 ADC_SampleTime_13Cycles5: Sample time equal to 13.5 cycles
+		 ADC_SampleTime_41Cycles5: Sample time equal to 41.5 cycles	
+		 ADC_SampleTime_55Cycles5: Sample time equal to 55.5 cycles	
+		 ADC_SampleTime_71Cycles5: Sample time equal to 71.5 cycles	
+		 ADC_SampleTime_239Cycles5: Sample time equal to 239.5 cycles	
+- ADC_SoftwareStartConvCmd(ADCx, NewState): Bắt đầu quá trình chuyển đổi
+- ADC_SoftwareStartConvCmd(ADC_TypeDef* ADCx, FunctionalState NewState): Bắt đầu quá trình chuyển đổi.
+ - ADC_GetConversionValue(ADC_TypeDef* ADCx): Đọc giá trị chuyển đổi được ở các kênh ADC tuần tự.
+- ADC_GetDualModeConversionValue(void): Trả về giá trị chuyển đổi cuối cùng của ADC1, ADC2 ở chế độ kép. Trả về thanh ghi 32 bits, 16 bits đầu của ADC2 và 16 bits sau của ADC1
+### 3. Bộ lọc Kalman
+Bộ lọc Kalman, được Rudolf (Rudy) E. Kálmán công bố năm 1960, là thuật toán sử dụng chuỗi các giá trị đo lường, bị ảnh hưởng bởi nhiễu hoặc sai số để ước đoán biến số nhằm tăng độ chính xác. Kalman
+![image](https://github.com/user-attachments/assets/861bf878-7021-402d-99b9-f8b2eab37023)
+
+Gọi hàm SimpleKalmanFilter(float mea_e, float est_e, float q)); Để khởi các giá trị sai số ước tính, sai số đo lường và sai số quá trình ban đầu. - mea_e: Sai số đo lường của phần cứng - est_e: Sai số dự đoán. - q: Sai số nhiễu quá trình từ tính hiệu đến bộ chuyển đổi ADC.
+</details>
+<details><summary>LESSON 10: DMA</summary>
+    <p>
+        
+## LESSON 10: DMA
+### 1. Khái niệm
+DMA (Direct Memory Access) là một cơ chế trong hệ thống nhúng và máy tính cho phép các thiết bị ngoại vi (ví dụ: ADC, SPI, UART, v.v.) hoặc bộ nhớ trong hệ thống (như RAM, Flash) truyền hoặc nhận dữ liệu trực tiếp với bộ nhớ mà không cần sự can thiệp trực tiếp của CPU.
+
+Trong các hệ thống không sử dụng DMA, khi thiết bị ngoại vi cần truyền hoặc nhận dữ liệu (ví dụ, cảm biến gửi dữ liệu qua SPI hoặc UART), CPU phải thực hiện từng thao tác đọc hoặc ghi dữ liệu từng byte từ bộ nhớ sang thanh ghi của thiết bị ngoại vi hoặc ngược lại. Quá trình này tốn nhiều thời gian CPU và làm giảm hiệu suất xử lý chung của hệ thống, đặc biệt khi khối lượng dữ liệu lớn hoặc tốc độ truyền nhanh.
+![image](https://github.com/user-attachments/assets/e4925039-6248-4875-a8c0-a84880cc6fe3)
+
+DMA giải quyết vấn đề này bằng cách cho phép CPU chỉ thiết lập cấu hình ban đầu thông qua Handshake cho bộ điều khiển DMA (DMA controller), bao gồm địa chỉ bộ nhớ nguồn, địa chỉ bộ nhớ đích, kích thước dữ liệu cần truyền, và các chế độ hoạt động. Sau đó, bộ điều khiển DMA sẽ tự động quản lý việc truyền dữ liệu trực tiếp giữa bộ nhớ và thiết bị ngoại vi mà không cần CPU phải can thiệp vào từng bước.
+
+Khi hoàn tất quá trình truyền, DMA gửi tín hiệu ngắt (interrupt) để thông báo cho CPU, từ đó CPU có thể xử lý các tác vụ tiếp theo. Nhờ vậy, CPU được giải phóng để thực hiện các nhiệm vụ khác, nâng cao hiệu suất tổng thể và giảm độ trễ của hệ thống.
+![image](https://github.com/user-attachments/assets/a60a6f7f-53e0-4cb0-9065-aab4f6ccb635)
+- CPU (1) cấu hình và kích hoạt DMA (4) hoạt động.
+- Ngoại vi (5) sẽ sử dụng DMA Request (6) để yêu cầu DMA (4) gửi/nhận dữ liệu ngoại vi.
+- DMA (4) tiến hành thực hiện yêu cầu từ DMA Request (6).
+- Lấy dữ liệu từ SRAM (2) thông qua Bus Matrix (3) <-> Đi qua các đường bus ngoại vi <-> Truy cập các thanh vi của ngoại vi (5).
+- Khi kết thúc, DMA (4) kích hoạt ngắt báo cho CPU (1) biết là quá trình hoan tất.
+### 2. DMA trong STM32
+Trên vi điều khiển STM32, DMA hoạt động với các thành phần chính sau:
+- DMA Stream: Là các luồng DMA, mỗi luồng có thể truyền một loại dữ liệu cụ thể (ví dụ: truyền từ bộ nhớ đến một thiết bị ngoại vi hoặc ngược lại).
+- DMA Channel: Một kênh DMA cụ thể sẽ liên kết với một thiết bị ngoại vi (ví dụ: SPI, USART).
+- DMA Controller (DMA1, DMA2): Điều khiển tất cả các luồng DMA.
+- DMA Interrupt: DMA có thể tạo interrupt (ngắt) khi hoàn thành một công việc, giúp CPU biết khi nào dữ liệu đã được truyền xong.
+
+Ví dụ: STM32F4 có 2 DMA controllers (DMA1 và DMA2), mỗi controller có 8 streams, và mỗi stream hỗ trợ nhiều channel. Việc kết hợp stream và channel giúp chọn đúng thiết bị ngoại vi và kiểu truyền.
+
+STM32F103C8T6 có hai bộ DMA. DMA1 gồm 7 kênh, DMA2 gồm 5 kênh.
+![image](https://github.com/user-attachments/assets/e458feea-5df8-45af-a7bb-efa96f9122bf)
+
+- Hai chế độ hoạt động chính:
+	- Normal mode (Chế độ bình thường): Truyền dữ liệu một lần theo số lượng byte đã cấu hình, sau đó dừng.
+	- Circular mode (Chế độ vòng tròn): Truyền dữ liệu liên tục, tự động quay lại đầu khi kết thúc, phù hợp cho các ứng dụng thu thập dữ liệu liên tục như ADC.
+-  Cấu hình kênh linh hoạt:
+	- Mỗi kênh DMA có thể được cấu hình riêng biệt về địa chỉ nguồn, địa chỉ đích, kích thước dữ liệu, hướng truyền, và chế độ hoạt động. Điều này cho phép mỗi kênh phục vụ cho nhu cầu truyền dữ liệu khác nhau trong hệ thống.
+- Chia sẻ kênh cho nhiều ngoại vi:
+	- Một kênh DMA có thể được ánh xạ để phục vụ cho nhiều ngoại vi khác nhau. Tuy nhiên, mỗi kênh chỉ hoạt động cho một ngoại vi tại một thời điểm, không thể đồng thời phục vụ nhiều ngoại vi.
+- Ưu tiên kênh (Priority Levels):
+	- Các kênh DMA có mức ưu tiên khác nhau (thấp đến rất cao). Khi nhiều kênh cùng yêu cầu truy cập bus DMA, kênh có ưu tiên cao hơn sẽ được phục vụ trước. Điều này giúp đảm bảo các tác vụ quan trọng hơn được xử lý kịp thời.
+- Hệ thống ngắt (Interrupt) với nhiều cờ báo:
+	- DMA trên STM32 hỗ trợ 5 loại cờ ngắt chính để theo dõi và xử lý quá trình truyền dữ liệu:
+
+	- DMA Half Transfer (HT): Báo khi quá trình truyền đã hoàn thành một nửa lượng dữ liệu.
+
+	- DMA Transfer Complete (TC): Báo khi truyền dữ liệu hoàn tất.
+
+	- DMA Transfer Error (TE): Báo lỗi trong quá trình truyền.
+
+	- DMA FIFO Error (FE): Báo lỗi liên quan đến FIFO (nếu DMA sử dụng FIFO).
+
+	- Direct Mode Error (DME): Báo lỗi khi sử dụng chế độ truyền trực tiếp không qua FIFO.
+
+Nhờ các cờ báo này, phần mềm có thể linh hoạt xử lý các sự kiện truyền dữ liệu, theo dõi tiến trình, và xử lý lỗi nhanh chóng, nâng cao độ tin cậy của hệ thống.
+### 3. Cấu hình DMA trên STM32
+#### 3.1. Cấp xung clock thông qua bus AHB
+	```c
+ 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA| RCC_APB2Periph_SPI1| RCC_APB2Periph_AFIO, ENABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+	RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
+ #### 3.2. Cấu hình DMA
+- Các tham số cho bộ DMA được cấu hình trong struct DMA_InitTypeDef. Gồm:
+	- `DMA_PeripheralBaseAddr`: Cấu hình địa chỉ của ngoại vi cho DMA. Đây là địa chỉ mà DMA sẽ lấy data hoặc truyền data tới cho ngoại vi. ( ô địa chỉ đầu tiên)
+	- `DMA MemoryBaseAddr`: Cấu hình địa chỉ vùng nhớ cần ghi/ đọc data .
+	- `DMA_DIR`: Cấu hình hướng truyền DMA, từ ngoại vi tới vùng nhớ PeripheralSRC hay từ vùng nhớ tới ngoại vi PeripheralDST.
+	- `DMA_BufferSize`:Kích thước của buffer, số lượng phần tử dữ liệu mà DMA sẽ truyền hoặc nhận. Đây là số lượng đơn vị dữ liệu (không phải số byte mà phụ thuộc vào kích thước data size) mà DMA xử lý trong một lần truyền. Ví dụ: Nếu bạn truyền 100 phần tử mỗi phần tử là 1 byte, DMA_BufferSize là 100.
+	- `DMA_PeripheralInc`: Cấu hình địa chỉ ngoại vi có tăng sau khi truyền DMA hay không. Nếu Enable, địa chỉ ngoại vi sẽ tăng lên theo kích thước data (byte, halfword, word) sau mỗi lần truyền, dùng cho các ngoại vi có vùng địa chỉ liên tục. Nếu Disable, địa chỉ ngoại vi giữ nguyên, thường dùng cho thanh ghi dữ liệu đơn của ngoại vi (ví dụ UART DR).
+	- `DMA Memory Inc`: Cấu hình địa chỉ bộ nhớ có tăng lên sau khi truyền DMA hay không. Enable: địa chỉ bộ nhớ tăng lên theo kích thước data để lưu dữ liệu liên tục trong vùng nhớ. Disable: địa chỉ bộ nhớ giữ nguyên, dùng khi truyền dữ liệu lặp lại đến hoặc từ cùng một vị trí bộ nhớ.
+	- `DMA_PeripheralDataSize`: Cấu hình độ lớn data của ngoại vi. Có thể là 8-bit (byte), 16-bit (halfword) hoặc 32-bit (word) tùy loại ngoại vi và ứng dụng. DMA sẽ đọc/ghi theo kích thước này.
+	- `DMA_MemoryDataSize`: Cấu hình độ lớn data của bộ nhớ, Byte, halfWord hoặc Word
+	- `DMA_Mode`: Cấu hình mode hoạt động là Normal hay Circular
+	- `DMA_Priority`: Cấu hình độ ưu tiên cho kênh DMA.
+	- `DMA_M2M`: Kích hoạt sử dụng truyền từ bộ nhớ đếm bộ nhớ cho kênh DMA Enable hoặc Disable
+
+- Khởi tạo DMA với DMA_Init(): Cấu hình các tham số cho kênh DMA (ở đây là DMA1_Channel2) dựa trên cấu trúc DMA_InitStruct mà bạn đã thiết lập (gồm các tham số như địa chỉ ngoại vi, bộ nhớ, kích thước buffer, hướng truyền, v.v).  Thiết lập xong cấu hình này, DMA đã biết cách hoạt động cho kênh này.
+
+	```c
+ 
+	DMA_Init(DMA1_Channel2, &DMA_InitStruct);
+ 
+
+-  Kích hoạt kênh DMA với DMA_Cmd():  Bật kênh DMA, cho phép nó bắt đầu hoạt động.
+	```c
+	DMA_Cmd(DMA1_Channel2, ENABLE);
+
+- Kích hoạt DMA cho ngoại vi cụ thể với hàm riêng biệt, ví dụ SPI: Cấu hình cho phép SPI1 sử dụng DMA để nhận dữ liệu (DMA request cho Rx).
+	```c
+	SPI_I2S_DMACmd(SPI1, SPI_I2S_DMAReq_Rx, ENABLE);
+
+- Ý nghĩa: DMA1_Channel2 trong ví dụ này được dùng cho SPI1_RX, tức là kênh 2 của DMA1 kết nối với chức năng nhận dữ liệu của SPI1., ngoại vi SPI sẽ kích hoạt tín hiệu yêu cầu DMA khi có dữ liệu cần truyền hoặc nhận, tạo sự phối hợp giữa DMA và SPI.
+- Sau khi DMA được kích hoạt và ngoại vi yêu cầu DMA, bộ DMA tự động xử lý việc lấy dữ liệu từ SPI và ghi vào bộ nhớ (hoặc ngược lại nếu truyền). Bạn không cần phải can thiệp thêm trong code ngoại trừ xử lý interrupt (nếu có).
+### 4. PWM
+- Tín hiệu PWM dùng để điều khiển động cơ servo gồm hai yếu tố chính:
+	- Tần số: thường là 50 Hz, tức là tín hiệu lặp lại mỗi 20 ms.
+	- Độ rộng xung: là thời gian tín hiệu ở mức cao trong mỗi chu kỳ, thường từ 1 ms đến 2 ms, tương ứng với góc quay của servo từ 0° đến 180°.
+- Chu kỳ nhiệm vụ (duty cycle) là tỉ lệ độ rộng xung trên chu kỳ, dao động khoảng từ 5% đến 10%. Độ rộng xung càng lớn thì servo quay càng xa góc tối đa.
+![image](https://github.com/user-attachments/assets/a06ea4c5-a05e-411c-a0e4-09b780e1958f)
+- Công thức tính toán độ rộng xung cho Servo:
+`pulseWidth = MIN_PULSE_WIDTH + (MAX_PULSE_WIDTH - MIN_PULSE_WIDTH) * angle / 180`
+	 - MIN_PULSE_WIDTH là độ rộng xung cho góc 0 độ (thường là 1000µs).
+	- MAX_PULSE_WIDTH là độ rộng xung cho góc 180 độ (thường là 2000µs).
+	- angle là góc mà servo xoay đến.
+### 4.1. Cấu hình PWM trong STM32
+- Ta phải cấu hình chân chế độ AF_PP để gán chân GPIO với 1 kênh của timer mà ta cấu hình chế độ PWM.
+	```c
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0; // PA0 là TIM2_CH1
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP; // Chế độ Alternate Function Push-Pull
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
+- Cấu hình timer chế độ PWM trong struct TIM_OCInitTypeDef:
+
+	- TIM_OCMode: Chọn chế độ hoạt động cho Output Compare. PWM1 thì kênh timer sẽ ở mức 1 khi nhỏ hơn TIM_Pulse và mức 0 khi lớn hơn. PWM2 ngược lại so với PWM1.
+	- TIM_OutputState: cho phép tín hiệu PWM được xuất ra từ chân tương ứng của MCU.
+	- TIM_Pulse: Đặt giá trị đầu cho độ rộng xung (giá trị timer dùng để so sánh).
+	- TIM_OCPolarity: Đặt cực tính của tín hiệu ngõ ra TIM_OCPolarity_High sẽ làm xung ở mức 1 (HIGH) khi giá trị đếm còn nhỏ hơn TIM_Pulse còn TIM_OCPolarity_Low sẽ làm xung ở mức 0 (LOW) khi giá trị đếm còn hơn hơn TIM_Pulse. Gọi hàm TIM_OCxInit(); để cấu hình cho kênh x tương ứng.
+- Hàm TIM_OCxPreloadConfig(); cấu hình Timer hoạt động với tính năng Preload (TIM_OCPreload_Enable) hay không (TIM_OCPreload_Disable).
+	- Tính năng Preload là tính năng mà hệ thống sẽ chờ cho tới khi timer tạo ra sự kiện Update Event thì mới nạp lại giá trị so sánh mới (TIM_Pulse)
+	- Sự kiện Update Event là sự kiện xảy ra khi timer đã đếm đến giá trị tối đa được cấu hình và sẽ quay lại 0 để bắt đầu chuu kỳ mới. Gọi hàm TIM_Cmd(); để cho phép Timer hoạt động.
+ - 	```c
+	TIM_OC1Init(TIM2, &TIM_OCInitStructure);
+	TIM_OC1PreloadConfig(TIM2, TIM_OCPreload_Enable);
+	TIM_Cmd(TIM2);
+    
+Để thay đổi độ rộng xung xuất ra, sử dụng hàm TIM_SetComparex(TIMx, pulseWidth); với Timer sử dụng là TIMx và độ rộng pulseWidth.
+
